@@ -46,7 +46,7 @@ try:
         config = json.load(f)
 except IOError as e:
     logger.error('{0} - Can not load Hetzner Robot hook config! {1} is used as base directory for this hook!'.format(e, base_dir))
-base_url = 'https://robot.your-hetzner.de'
+base_url = 'https://robot.your-server.de'
 
 if config['debug'] == True:
     logger.setLevel(logging.DEBUG)
@@ -209,6 +209,7 @@ def _edit_zone_file(zone_id, cookies, domain, token, edit_txt_record):
             txt_record = '{0} IN TXT "{1}"'.format(name, token)
             logger.debug(' + Created TXT record: {0}'.format(txt_record))
             zone_file[1] = zone_file[1] + txt_record
+            f.write(txt_record)
         else:
             logger.debug(' + No TXT record for {0} with token {1}'.format(name, token))
     f.truncate()
@@ -323,7 +324,7 @@ def main(argv):
         'invalid_challenge': invalid_challenge,
         'exit_hook': exit_hook
     }
-    logger.info(" + Hetzner hook executing: {0}".format(argv[0]))
+    logger.info(" + Hetzner Robot hook executing: {0}".format(argv[0]))
     ops[argv[0]](argv[1:])
 
 
