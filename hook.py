@@ -40,7 +40,7 @@ try:
     with open('config.json', 'r') as f:
         config = json.load(f)
 except IOError as e:
-    logger.error('{0}. during loading "config.json"!'.format(e))
+    logger.error('{0}. Can not load "config.json"!'.format(e))
 
 if config['debug'] == True:
     logger.setLevel(logging.DEBUG)
@@ -151,7 +151,7 @@ def _update_zone_ids(cookies):
     config['account']['zone_ids_updated'] = time.strftime("%d-%m-%YT%H:%M:%S +0000", time.gmtime())
     with open('config.json', 'w') as f:
         json.dump(config, f, indent=4, separators=(',', ': '))    
-    logger.debug('Updated & responsed {0} zone IDs'.format(len(zone_ids)))
+    logger.debug(' + Updated & responsed {0} zone IDs'.format(len(zone_ids)))
     
     return zone_ids
 
@@ -169,7 +169,7 @@ def _get_zone_file(zone_id, cookies):
 
 
 def _edit_zone_file(zone_id, cookies, domain, token, edit_txt_record):
-    tld = get_tld('http://' + domain)
+    tld = get_tld('http://' + domain, as_object=True)
     name = '{0}.{1}'.format('_acme-challenge', tld.subdomain)
     logger.debug(' + Get zone {0} for TXT record {1} from Hetzner Robot'.format(tld, name))
     zone_file = _get_zone_file(zone_id, cookies)

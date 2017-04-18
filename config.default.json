@@ -20,6 +20,6 @@
         }
     },
     "base_url": "https://robot.your-server.de",
-    "debug": true,
+    "debug": false,
     "zone_file_dir": "zones"
 }
