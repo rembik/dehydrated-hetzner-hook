@@ -37,10 +37,16 @@ logger = logging.getLogger(__name__)
 logger.addHandler(logging.StreamHandler())
 
 try:
-    with open('config.json', 'r') as f:
+    base_dir = '{0}/hooks/hetzner'.format(os.environ['BASEDIR'])
+except KeyError:
+    base_dir = '/opt/dehydrated-hetzner-hook'
+    logger.error(' + Unable to get dehydrated BASEDIR in environment. Use /opt/dehydrated-hetzner-hook as base directory instead.')
+try:
+    with open('{0}/config.json'.format(base_dir), 'r') as f:
         config = json.load(f)
 except IOError as e:
-    logger.error('{0} - Can not load "config.json"!'.format(e))
+    logger.error('{0} - Can not load Hetzner Robot hook config! {1} is used as base directory for this hook!'.format(e, base_dir))
+base_url = 'https://robot.your-hetzner.de'
 
 if config['debug'] == True:
     logger.setLevel(logging.DEBUG)
@@ -72,8 +78,8 @@ def _has_dns_propagated(name, token):
 
 def _login(username, password, language):
     logger.debug(' + Logging in on Hetzner Robot with account "{0}"'.format(config['account']['username']))
-    login_form_url = '{0}/login'.format(config['base_url'])
-    login_url = '{0}/login/check'.format(config['base_url'])
+    login_form_url = '{0}/login'.format(base_url)
+    login_url = '{0}/login/check'.format(base_url)
     r = requests.get(login_form_url)
     r = requests.post(login_url, data={'user': username, 'password': password}, cookies=r.cookies)
     # ugly: the hetzner status code is always 200 (delivering the login form as an "error message")
@@ -88,7 +94,7 @@ def _login(username, password, language):
     
 def _logout(cookies):
     logger.debug(' + Logging out from Hetzner Robot')
-    logout_url = '{0}/login/logout'.format(config['base_url'])
+    logout_url = '{0}/login/logout'.format(base_url)
     r = requests.get(logout_url, cookies=cookies)
     
     return r.status_code == 200
@@ -135,7 +141,7 @@ def _update_zone_ids(cookies):
     page = 1
     while last_count != len(zone_ids):
         last_count = len(zone_ids)
-        dns_url = '{0}/dns/index/page/{1}'.format(config['base_url'], page)  
+        dns_url = '{0}/dns/index/page/{1}'.format(base_url, page)  
         r = requests.get(dns_url, cookies=cookies)
         soup = BeautifulSoup(r.text, 'html5lib')
         boxes = soup.findAll('table', attrs={'class': 'box_title'})
@@ -149,7 +155,7 @@ def _update_zone_ids(cookies):
         page += 1
     # save zone IDs in config.json with current timestamp       
     config['account']['zone_ids_updated'] = time.strftime("%d-%m-%YT%H:%M:%S +0000", time.gmtime())
-    with open('config.json', 'w') as f:
+    with open('{0}config.json'.format(base_dir), 'w') as f:
         json.dump(config, f, indent=4, separators=(',', ': '))    
     logger.debug(' + Updated & responsed {0} zone IDs'.format(len(zone_ids)))
     
@@ -157,7 +163,7 @@ def _update_zone_ids(cookies):
 
 
 def _get_zone_file(zone_id, cookies):
-    dns_url = '{0}/dns/update/id/{1}'.format(config['base_url'], zone_id)
+    dns_url = '{0}/dns/update/id/{1}'.format(base_url, zone_id)
     r = requests.get(dns_url, cookies=cookies)
     soup = BeautifulSoup(r.text, 'html5lib')
     inputTag = soup.find('input', attrs={'id': 'csrf_token'})
@@ -177,7 +183,7 @@ def _edit_zone_file(zone_id, cookies, domain, token, edit_txt_record):
     logger.debug(' + Get zone {0} for TXT record {1} from Hetzner Robot'.format(tld, name))    
     zone_file = _get_zone_file(zone_id, cookies)
     logger.debug(' + Searching zone {0} for TXT record {1}'.format(tld, name))
-    file = os.path.join(config['zone_file_dir'], '{0}.txt'.format(tld))
+    file = os.path.join('{0}/zones'.format(base_dir), '{0}.txt'.format(tld))
     txt_record_regex = re.compile(name + '\s+IN\s+TXT\s+"'+ token + '"')
     found_txt_record = False
     f = open(file,'w')
@@ -214,7 +220,7 @@ def _edit_zone_file(zone_id, cookies, domain, token, edit_txt_record):
 
 def _update_zone_file(zone_id, cookies, zone_file, language):
     logger.debug(' + Updating zone on Hetzner Robot:\n   cookies: {0}\n   ID: {1}\n   zonefile:\n\n{2}\n\n   _csrf_token: {3}'.format(cookies, zone_id, zone_file[1], zone_file[0]))
-    update_url = '{0}/dns/update'.format(config['base_url'])
+    update_url = '{0}/dns/update'.format(base_url)
     r = requests.post(
         update_url, 
         cookies=cookies, 

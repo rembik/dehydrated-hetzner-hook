@@ -22,7 +22,5 @@
             "en": "Thank you for"
         }
     },
-    "base_url": "https://robot.your-server.de",
-    "debug": false,
-    "zone_file_dir": "zones"
+    "debug": false
 }
