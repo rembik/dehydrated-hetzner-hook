@@ -44,6 +44,7 @@ except KeyError:
 try:
     auth_username = os.environ['HETZNER_USERNAME']
     auth_password = os.environ['HETZNER_PASSWORD']
+    logger.error(' + HETZNER_USERNAME={0} and HETZNER_PASSWORD={1}'.format(auth_username, auth_password))
 except KeyError:
     logger.error(' + Unable to get Hetzner Robot credentials in environment!')
     sys.exit(1)
@@ -51,7 +52,7 @@ try:
     with open('{0}/accounts/{1}.json'.format(base_dir, auth_username), 'r') as f:
         config = json.load(f)
 except IOError as e:
-    logger.debug(' + {0} - Can not load Hetzner Robot hook config for account "{1}"! Try to use default hook config instead'.format(e, auth_username))
+    logger.error(' + {0} - Can not load Hetzner Robot hook config for account "{1}"! Try to use default hook config instead'.format(e, auth_username))
     try:
         with open('{0}/accounts/default.json'.format(base_dir), 'r') as f:
             config = json.load(f)
@@ -61,11 +62,10 @@ except IOError as e:
 base_url = 'https://robot.your-server.de'
 response_check = {'login': {'de': 'Herzlich Willkommen auf Ihrer', 'en': 'Welcome to your'}, 'update': {'de': 'Vielen Dank', 'en': 'Thank you for'}}
 
-try:
-    if config['debug'] == True:
-        logger.setLevel(logging.DEBUG)
-    else:
-        logger.setLevel(logging.INFO)
+if config['debug'] == True:
+    logger.setLevel(logging.DEBUG)
+else:
+    logger.setLevel(logging.INFO)
 
 
 def _has_dns_propagated(name, token):
@@ -73,7 +73,7 @@ def _has_dns_propagated(name, token):
     for dns_server in config['dns_servers']:
         dns_servers.append(dns_server)   
     if not dns_servers:
-        dns_server = False
+        dns_servers = False
     try:
         if dns_servers:
             custom_resolver = dns.resolver.Resolver()
