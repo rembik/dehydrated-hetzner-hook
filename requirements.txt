@@ -1,0 +1,6 @@
+dnspython==1.15.0
+future==0.15.2
+requests==2.9.1
+six==1.10.0
+tld==0.7.6
+beautifulsoup4==4.5.3

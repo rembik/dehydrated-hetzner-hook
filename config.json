@@ -1,0 +1,25 @@
+{
+    "account": {
+        "username": "hetzner-robot-user",
+        "password": "hetzner-robot-password",
+        "language": "en",
+        "dns_servers": [
+        ],
+        "zone_ids_updated": "",
+        "zone_ids": {
+        }
+    },
+    "response_check": {
+        "login": {
+            "de": "Herzlich Willkommen auf Ihrer",
+            "en": "Welcome to your"
+        },
+        "update": {
+            "de": "Vielen Dank",
+            "en": "Thank you for"
+        }
+    },
+    "base_url": "https://robot.your-server.de",
+    "debug": true,
+    "zone_file_dir": "zones"
+}
