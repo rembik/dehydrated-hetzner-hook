@@ -1,6 +1,6 @@
 # Hetzner Robot hook for `dehydrated`
 
-This is a hook for the [Let's Encrypt](https://letsencrypt.org/) ACME client [dehydrated](https://github.com/lukas2511/dehydrated) (previously known as `letsencrypt.sh`) that allows you to use [Hetzner](https://www.hetzner.de/us/hosting/domain/registrationrobot) DNS records to respond to `dns-01` challenges (credits to [kappataumu](https://github.com/kappataumu/letsencrypt-cloudflare-hook)). Requires Python and your Hetzner account username and password being set as config variables.
+This is a hook for the [Let's Encrypt](https://letsencrypt.org/) ACME client [dehydrated](https://github.com/lukas2511/dehydrated) (previously known as `letsencrypt.sh`) that allows you to use [Hetzner](https://www.hetzner.de/us/hosting/domain/registrationrobot) DNS records to respond to `dns-01` challenges (credits to [kappataumu](https://github.com/kappataumu/letsencrypt-cloudflare-hook)). Requires Python and your Hetzner Robot account(username and password) being set as config variables.
 
 ## Precondition
 ```
@@ -46,8 +46,8 @@ BASEDIR="/etc/dehydrated"
 CHALLENGETYPE="dns-01"
 CERTDIR="${BASEDIR}/certs"
 ACCOUNTDIR="${BASEDIR}/accounts"
-HOOK="${BASEDIR}/hooks/hetzner/hook.py
-CONTACT_EMAIL=youremail@example.com
+HOOK="${BASEDIR}/hooks/hetzner/hook.py"
+CONTACT_EMAIL="youremail@example.com"
 ```
 
 The hook script is looking for a [`config.json`](https://github.com/rembik/dehydrated-hetzner-hook/blob/master/config.default.json) and a directory `zones` in the `${BASEDIR}/hooks/hetzner` directory.

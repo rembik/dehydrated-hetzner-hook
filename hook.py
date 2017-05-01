@@ -180,9 +180,9 @@ def _edit_zone_file(zone_id, cookies, domain, token, edit_txt_record):
         name = '_acme-challenge'
     else:
         name = '{0}.{1}'.format('_acme-challenge', tld.subdomain)
-    logger.debug(' + Get zone {0} for TXT record {1} from Hetzner Robot'.format(tld, domain))    
+    logger.debug(' + Get zone {0} for TXT record _acme-challenge.{1} from Hetzner Robot'.format(tld, domain))    
     zone_file = _get_zone_file(zone_id, cookies)
-    logger.debug(' + Searching zone {0} for TXT record {1}'.format(tld, name))
+    logger.debug(' + Searching zone {0} for TXT record _acme-challenge.{1}'.format(tld, domain))
     file = os.path.join('{0}/zones'.format(base_dir), '{0}.txt'.format(tld))
     txt_record_regex = re.compile(name + '\s+IN\s+TXT\s+"'+ token + '"')
     found_txt_record = False
@@ -197,7 +197,7 @@ def _edit_zone_file(zone_id, cookies, domain, token, edit_txt_record):
         if txt_record_regex.search(line):
             found_txt_record = True
             if edit_txt_record=='create':
-                logger.debug(' + TXT record for {0} with token {1} allready exists'.format(name, token))
+                logger.debug(' + TXT record for _acme-challenge.{0} with token {1} allready exists'.format(domain, token))
             elif edit_txt_record=='delete': 
                 logger.debug(' + Deleted TXT record: {0} IN TXT "{1}"'.format(name, token))
                 continue
@@ -205,13 +205,13 @@ def _edit_zone_file(zone_id, cookies, domain, token, edit_txt_record):
         f.write(line)
     if not found_txt_record:
         if edit_txt_record=='create':
-            logger.debug(' + Unable to locate TXT record for {0}'.format(name))
+            logger.debug(' + Unable to locate TXT record for _acme-challenge.{0}'.format(domain))
             txt_record = '{0} IN TXT "{1}"'.format(name, token)
             logger.debug(' + Created TXT record: {0}'.format(txt_record))
             zone_file[1] = zone_file[1] + txt_record
             f.write(txt_record)
         else:
-            logger.debug(' + No TXT record for {0} with token {1}'.format(name, token))
+            logger.debug(' + No TXT record for _acme-challenge.{0} with token {1}'.format(domain, token))
     f.truncate()
     f.close()
     logger.debug(' + Saved zonefile: {0}'.format(file))
@@ -220,7 +220,7 @@ def _edit_zone_file(zone_id, cookies, domain, token, edit_txt_record):
     
 
 def _update_zone_file(zone_id, cookies, zone_file, language):
-    logger.debug(' + Updating zone on Hetzner Robot:\n   cookies: {0}\n   id: {1}\n   _csrf_token: {3}\n   zonefile:\n\n{2}\n\n'.format(cookies, zone_id, zone_file[0], zone_file[1]))
+    logger.debug(' + Updating zone on Hetzner Robot:\n   cookies: {0}\n   id: {1}\n   _csrf_token: {2}\n   zonefile:\n\n{3}\n\n'.format(cookies, zone_id, zone_file[0], zone_file[1]))
     update_url = '{0}/dns/update'.format(base_url)
     r = requests.post(
         update_url, 
@@ -228,7 +228,7 @@ def _update_zone_file(zone_id, cookies, zone_file, language):
         data={'id': zone_id, 'zonefile': zone_file[1], '_csrf_token': zone_file[0]}
     )
       
-    # ugly: the hetzner status code is always 200 (delivering the login form as an "error message")
+    # ugly: the hetzner status code is always 200 (delivering the update form as an "error message")
     return config['response_check']['update'][language] in r.text
 
 
