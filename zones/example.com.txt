@@ -1,0 +1,14 @@
+$TTL 86400
+@   IN SOA ns1.first-ns.de. postmaster.robot.first-ns.de. (
+    2017050136   ; serial
+    14400        ; refresh
+    1800         ; retry
+    604800       ; expire
+    86400 )      ; minimum
+
+@                        IN NS      robotns3.second-ns.com.
+@                        IN NS      robotns2.second-ns.de.
+@                        IN NS      ns1.first-ns.de.
+
+@                        IN A       192.168.1.1
+_acme-challenge          IN TXT     "e8hcebbxR202sHbE5Bx4wVlkwP49MNMQ2RWtoObZRQ0"

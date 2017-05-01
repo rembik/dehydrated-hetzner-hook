@@ -155,7 +155,7 @@ def _update_zone_ids(cookies):
         page += 1
     # save zone IDs in config.json with current timestamp       
     config['account']['zone_ids_updated'] = time.strftime("%d-%m-%YT%H:%M:%S +0000", time.gmtime())
-    with open('{0}config.json'.format(base_dir), 'w') as f:
+    with open('{0}/config.json'.format(base_dir), 'w') as f:
         json.dump(config, f, indent=4, separators=(',', ': '))    
     logger.debug(' + Updated & responsed {0} zone IDs'.format(len(zone_ids)))
     
@@ -180,7 +180,7 @@ def _edit_zone_file(zone_id, cookies, domain, token, edit_txt_record):
         name = '_acme-challenge'
     else:
         name = '{0}.{1}'.format('_acme-challenge', tld.subdomain)
-    logger.debug(' + Get zone {0} for TXT record {1} from Hetzner Robot'.format(tld, name))    
+    logger.debug(' + Get zone {0} for TXT record {1} from Hetzner Robot'.format(tld, domain))    
     zone_file = _get_zone_file(zone_id, cookies)
     logger.debug(' + Searching zone {0} for TXT record {1}'.format(tld, name))
     file = os.path.join('{0}/zones'.format(base_dir), '{0}.txt'.format(tld))
@@ -220,7 +220,7 @@ def _edit_zone_file(zone_id, cookies, domain, token, edit_txt_record):
     
 
 def _update_zone_file(zone_id, cookies, zone_file, language):
-    logger.debug(' + Updating zone on Hetzner Robot:\n   cookies: {0}\n   ID: {1}\n   zonefile:\n\n{2}\n\n   _csrf_token: {3}'.format(cookies, zone_id, zone_file[1], zone_file[0]))
+    logger.debug(' + Updating zone on Hetzner Robot:\n   cookies: {0}\n   id: {1}\n   _csrf_token: {3}\n   zonefile:\n\n{2}\n\n'.format(cookies, zone_id, zone_file[0], zone_file[1]))
     update_url = '{0}/dns/update'.format(base_url)
     r = requests.post(
         update_url, 
