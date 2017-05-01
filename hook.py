@@ -45,8 +45,9 @@ try:
     with open('{0}/config.json'.format(base_dir), 'r') as f:
         config = json.load(f)
 except IOError as e:
-    logger.error('{0} - Can not load Hetzner Robot hook config! {1} is used as base directory for this hook!'.format(e, base_dir))
+    logger.error(' + {0} - Can not load Hetzner Robot hook config! {1} is used as base directory for this hook!'.format(e, base_dir))
 base_url = 'https://robot.your-server.de'
+response_check = {'login': {'de': 'Herzlich Willkommen auf Ihrer', 'en': 'Welcome to your'}, 'update': {'de': 'Vielen Dank', 'en': 'Thank you for'}}
 
 if config['debug'] == True:
     logger.setLevel(logging.DEBUG)
@@ -76,14 +77,14 @@ def _has_dns_propagated(name, token):
     return False
 
 
-def _login(username, password, language):
+def _login(username, password):
     logger.debug(' + Logging in on Hetzner Robot with account "{0}"'.format(config['account']['username']))
     login_form_url = '{0}/login'.format(base_url)
     login_url = '{0}/login/check'.format(base_url)
     r = requests.get(login_form_url)
     r = requests.post(login_url, data={'user': username, 'password': password}, cookies=r.cookies)
     # ugly: the hetzner status code is always 200 (delivering the login form as an "error message")
-    if config['response_check']['login'][language] not in r.text:
+    if response_check['login'][config['account']['language']] not in r.text:
         logger.error(" + Unable to login with Hetzner credentials from config!")
         sys.exit(1)
         return
@@ -211,7 +212,7 @@ def _edit_zone_file(zone_id, cookies, domain, token, edit_txt_record):
             zone_file[1] = zone_file[1] + txt_record
             f.write(txt_record)
         else:
-            logger.debug(' + No TXT record for _acme-challenge.{0} with token {1}'.format(domain, token))
+            logger.debug(' + TXT record for _acme-challenge.{0} with token {1} dont exists'.format(domain, token))
     f.truncate()
     f.close()
     logger.debug(' + Saved zonefile: {0}'.format(file))
@@ -219,7 +220,7 @@ def _edit_zone_file(zone_id, cookies, domain, token, edit_txt_record):
     return zone_file
     
 
-def _update_zone_file(zone_id, cookies, zone_file, language):
+def _update_zone_file(zone_id, cookies, zone_file):
     logger.debug(' + Updating zone on Hetzner Robot:\n   cookies: {0}\n   id: {1}\n   _csrf_token: {2}\n   zonefile:\n\n{3}\n\n'.format(cookies, zone_id, zone_file[0], zone_file[1]))
     update_url = '{0}/dns/update'.format(base_url)
     r = requests.post(
@@ -229,7 +230,7 @@ def _update_zone_file(zone_id, cookies, zone_file, language):
     )
       
     # ugly: the hetzner status code is always 200 (delivering the update form as an "error message")
-    return config['response_check']['update'][language] in r.text
+    return response_check['update'][config['account']['language']] in r.text
 
 
 def create_txt_record(args, cookies):
@@ -238,8 +239,8 @@ def create_txt_record(args, cookies):
     logger.debug(' + Challenge: {0}'.format(challenge))
     zone_id = _get_zone_id(domain, cookies)
     zone_file = _edit_zone_file(zone_id, cookies, domain, token, 'create')
-    update_succeed = _update_zone_file(zone_id, cookies, zone_file, config['account']['language'])
-    if update_succeed: 
+    update_txt_record = _update_zone_file(zone_id, cookies, zone_file)
+    if update_txt_record: 
         logger.debug(' + Updated TXT record for {0} on Hetzner Robot'.format(domain))
     else:
         logger.error(' + Error during updating zone for {0} on Hetzner Robot!'.format(domain))
@@ -281,7 +282,7 @@ def invalid_challenge(args):
 
 
 def create_all_txt_records(args):
-    cookies = _login(config['account']['username'], config['account']['password'], config['account']['language'])  
+    cookies = _login(config['account']['username'], config['account']['password'])  
     X = 3
     for i in range(0, len(args), X):
         create_txt_record(args[i:i+X], cookies)
@@ -294,21 +295,22 @@ def create_all_txt_records(args):
         while(_has_dns_propagated(name, token) == False):
             logger.info(" + DNS not propagated, waiting 30s...")
             time.sleep(30)
-    if not _logout(cookies):
-        logger.debug(' + Can not logout!')
+    if _logout(cookies):
+        logger.debug(' + Logged out')
     else:
-        logger.debug(' + Logged out.')
+        logger.error(' + Can not logout!')
+        
 
 
 def delete_all_txt_records(args):
-    cookies = _login(config['account']['username'], config['account']['password'], config['account']['language'])
+    cookies = _login(config['account']['username'], config['account']['password'])
     X = 3
     for i in range(0, len(args), X):
         delete_txt_record(args[i:i+X], cookies)
-    if not _logout(cookies):
-        logger.debug(' + Can not logout!')
+    if _logout(cookies):
+        logger.debug(' + Logged out')
     else:
-        logger.debug(' + Logged out.')
+        logger.error(' + Can not logout!')
 
 
 def exit_hook(args):

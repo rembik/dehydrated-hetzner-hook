@@ -12,15 +12,5 @@
         "zone_ids": {
         }
     },
-    "response_check": {
-        "login": {
-            "de": "Herzlich Willkommen auf Ihrer",
-            "en": "Welcome to your"
-        },
-        "update": {
-            "de": "Vielen Dank",
-            "en": "Thank you for"
-        }
-    },
     "debug": false
 }
