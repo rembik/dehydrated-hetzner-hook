@@ -10,6 +10,7 @@ $ git clone https://github.com/lukas2511/dehydrated
 $ cd dehydrated
 $ mkdir hooks
 $ git clone https://github.com/rembikrain/dehydrated-hetzner-hook hooks/hetzner
+$ cp hooks/hetzner/config.default.json hooks/hetzner/config.json 
 $ mkdir hooks/hetzner/zones
 ```
 
@@ -26,14 +27,14 @@ $ pip install -r hooks/hetzner/requirements-python-2.txt
 
 
 ## Configuration
-The hook script is looking for a [`config.json`](https://github.com/rembik/dehydrated-hetzner-hook/blob/master/config.json) in the `hooks/hetzner` directory.
+The hook script is looking for a [`config.json`](https://github.com/rembik/dehydrated-hetzner-hook/blob/master/config.default.json) in the `hooks/hetzner` directory.
 Your account's Hetzner Robot username and password are expected to be in the config variables. Because of the ugly response status codes when requesting Hetzner Robot you also need to specify your Hetzner Robot interface language [english - en | deutsch - de]. So **make sure to set**:
 
 ```
-"account":{
-    "username":"hetzner-robot-user",
-    "password":"hetzner-robot-password",
-    "language":"en",
+"account": {
+    "username": "hetzner-robot-user",
+    "password": "hetzner-robot-password",
+    "language": "en",
     ...
 }
 ```
@@ -41,7 +42,7 @@ Your account's Hetzner Robot username and password are expected to be in the con
 *Optionally,* you can specify the DNS servers to be used for propagation checking via the `accounts => dns_servers` config variable (credits to [bennettp123](https://github.com/bennettp123)):
 
 ```
-"account":{
+"account": {
     "dns_servers": [
         "8.8.8.8",
         "8.8.4.4"
@@ -53,13 +54,13 @@ Your account's Hetzner Robot username and password are expected to be in the con
 *Optionally,* if you want to change the directory for caching the needed `zone` files, change config variable (make sure this directory exists):
  
 ```
-"zone_file_dir":"zones"
+"zone_file_dir": "zones"
 ```
 
 *Optionally,* if you want more information about what is going on while the hook is running:
 
 ```
-"debug":true
+"debug": true
 ```
 
 ## Usage

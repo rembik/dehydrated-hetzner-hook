@@ -49,14 +49,11 @@ else:
 
 
 def _has_dns_propagated(name, token):
-    dns_servers = []
-    
+    dns_servers = []    
     for dns_server in config['account']['dns_servers']:
-        dns_servers.append(dns_server)
-    
-    if not dns_servers
-        dns_servers = False
-        
+        dns_servers.append(dns_server)   
+    if not dns_servers:
+        dns_servers = False      
     try:
         if dns_servers:
             custom_resolver = dns.resolver.Resolver()
@@ -67,8 +64,7 @@ def _has_dns_propagated(name, token):
             
         for rdata in dns_response:
             if token in [b.decode('utf-8') for b in rdata.strings]:
-                return True
-                
+                return True            
     except dns.exception.DNSException as e:
         logger.debug(" + {0}. Retrying query...".format(e))
         
