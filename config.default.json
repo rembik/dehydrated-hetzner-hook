@@ -4,6 +4,9 @@
         "password": "hetzner-robot-password",
         "language": "en",
         "dns_servers": [
+            "213.239.242.238",
+            "213.133.105.6",
+            "193.47.99.3"
         ],
         "zone_ids_updated": "",
         "zone_ids": {

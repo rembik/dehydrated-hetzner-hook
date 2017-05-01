@@ -174,7 +174,7 @@ def _edit_zone_file(zone_id, cookies, domain, token, edit_txt_record):
         name = '_acme-challenge'
     else:
         name = '{0}.{1}'.format('_acme-challenge', tld.subdomain)
-    logger.debug(' + Get zone {0} for TXT record {1} from Hetzner Robot'.format(tld, name))
+    logger.debug(' + Get zone {0} for TXT record {1} from Hetzner Robot'.format(tld, name))    
     zone_file = _get_zone_file(zone_id, cookies)
     logger.debug(' + Searching zone {0} for TXT record {1}'.format(tld, name))
     file = os.path.join(config['zone_file_dir'], '{0}.txt'.format(tld))
@@ -212,15 +212,15 @@ def _edit_zone_file(zone_id, cookies, domain, token, edit_txt_record):
     return zone_file
     
 
-def _update_zone_file(id, cookies, zone_file, language):
-    logger.debug(' + Updating zone on Hetzner Robot:\n   cookies: {0}\n   ID: {1}\n   Zonefile:\n{2}\n   _csrf_token: {3}'.format(cookies, id, zone_file[1], zone_file[0]))
+def _update_zone_file(zone_id, cookies, zone_file, language):
+    logger.debug(' + Updating zone on Hetzner Robot:\n   cookies: {0}\n   ID: {1}\n   zonefile:\n\n{2}\n\n   _csrf_token: {3}'.format(cookies, zone_id, zone_file[1], zone_file[0]))
     update_url = '{0}/dns/update'.format(config['base_url'])
     r = requests.post(
         update_url, 
         cookies=cookies, 
-        data={'id': id, 'zonefile': zone_file[1], '_csrf_token': zone_file[0]}
+        data={'id': zone_id, 'zonefile': zone_file[1], '_csrf_token': zone_file[0]}
     )
-    
+      
     # ugly: the hetzner status code is always 200 (delivering the login form as an "error message")
     return config['response_check']['update'][language] in r.text
 
@@ -233,9 +233,9 @@ def create_txt_record(args, cookies):
     zone_file = _edit_zone_file(zone_id, cookies, domain, token, 'create')
     update_succeed = _update_zone_file(zone_id, cookies, zone_file, config['account']['language'])
     if update_succeed: 
-        logger.debug(' + Updated TXT record for {0} successfully'.format(domain))
+        logger.debug(' + Updated TXT record for {0} on Hetzner Robot'.format(domain))
     else:
-        logger.error(' + Error during updating TXT record for {0}!'.format(domain))
+        logger.error(' + Error during updating zone for {0} on Hetzner Robot!'.format(domain))
         sys.exit(1)
 
 
@@ -247,11 +247,11 @@ def delete_txt_record(args, cookies):
 
     zone_id = _get_zone_id(domain, cookies)
     zone_file = _edit_zone_file(zone_id, cookies, domain, token, 'delete')
-    update_succeed = _update_zone_file(zone_id, cookies, zone_file, config['account']['language'])
-    if update_succeed: 
-        logger.debug(' + Updated TXT record for {0} successfully'.format(domain))
+    delete_txt_record = _update_zone_file(zone_id, cookies, zone_file, config['account']['language'])
+    if delete_txt_record: 
+        logger.debug(' + Deleted TXT record for {0} on Hetzner Robot'.format(domain))
     else:
-        logger.error(' + Error during updating TXT record for {0}!'.format(domain))
+        logger.error(' + Error during updating zone for {0} on Hetzner Robot!'.format(domain))
         sys.exit(1)
 
 

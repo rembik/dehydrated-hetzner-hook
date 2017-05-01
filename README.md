@@ -1,28 +1,27 @@
-# Hetzner hook for `dehydrated`
+# Hetzner Robot hook for `dehydrated`
 
 This is a hook for the [Let's Encrypt](https://letsencrypt.org/) ACME client [dehydrated](https://github.com/lukas2511/dehydrated) (previously known as `letsencrypt.sh`) that allows you to use [Hetzner](https://www.hetzner.de/us/hosting/domain/registrationrobot) DNS records to respond to `dns-01` challenges (credits to [kappataumu](https://github.com/kappataumu/letsencrypt-cloudflare-hook)). Requires Python and your Hetzner account username and password being set as config variables.
 
 ## Installation
 
 ```
-$ cd ~
-$ git clone https://github.com/lukas2511/dehydrated
-$ cd dehydrated
-$ mkdir hooks
-$ git clone https://github.com/rembikrain/dehydrated-hetzner-hook hooks/hetzner
-$ cp hooks/hetzner/config.default.json hooks/hetzner/config.json 
-$ mkdir hooks/hetzner/zones
+$ cd /opt/
+$ git clone https://github.com/rembik/dehydrated-hetzner-hook
+$ cp dehydrated-hetzner-hook/config.default.json dehydrated-hetzner-hook/config.json
+$ mkdir dehydrated-hetzner-hook/zones
 ```
 
 If you are using Python 3:
 ```
-$ pip3 install -r hooks/hetzner/requirements.txt
+$ apt install python3 python3-pip
+$ pip3 install -r dehydrated-hetzner-hook/requirements.txt
 ```
 
 Otherwise, if you are using Python 2 (make sure to also check the [urllib3 documentation](http://urllib3.readthedocs.org/en/latest/security.html#installing-urllib3-with-sni-support-and-certificates) for possible caveats):
 
 ```
-$ pip install -r hooks/hetzner/requirements-python-2.txt
+$ apt install python python-pip
+$ pip install -r dehydrated-hetzner-hook/requirements-python-2.txt
 ```
 
 
@@ -39,13 +38,14 @@ Your account's Hetzner Robot username and password are expected to be in the con
 }
 ```
 
-*Optionally,* you can specify the DNS servers to be used for propagation checking via the `accounts => dns_servers` config variable (credits to [bennettp123](https://github.com/bennettp123)):
+*Optionally,* but **highly recommended**: Specify your Hetzner Nameservers (see your DNS `zone` files) to be used for propagation checking via the `accounts => dns_servers` config variable (credits to [bennettp123](https://github.com/bennettp123)):
 
 ```
 "account": {
     "dns_servers": [
-        "8.8.8.8",
-        "8.8.4.4"
+        "213.239.242.238",
+        "213.133.105.6",
+        "193.47.99.3"
     ],
     ...
 }
@@ -66,7 +66,7 @@ Your account's Hetzner Robot username and password are expected to be in the con
 ## Usage
 
 ```
-$ ./dehydrated -c -d example.com -t dns-01 -k 'hooks/hetzner/hook.py'
+$ ./dehydrated -c -d example.com -t dns-01 -k '/opt/dehydrated-hetzner-hook/hook.py'
 #
 # !! WARNING !! No main config file found, using default config!
 #
