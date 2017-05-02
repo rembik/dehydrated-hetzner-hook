@@ -220,7 +220,7 @@ def _edit_zone_file(zone_id, cookies, domain, token, edit_txt_record):
     
 
 def _update_zone_file(zone_id, cookies, zone_file):
-    logger.debug(' + Updating zone on Hetzner Robot:\n   cookies: {0}\n   id: {1}\n   _csrf_token: {2}\n   zonefile:\n\n{3}\n\n'.format(cookies, zone_id, zone_file[0], zone_file[1]))
+    logger.debug(' + Updating zone on Hetzner Robot:\n   cookies: {0}\n   id: {1}\n   _csrf_token: {2}\n   zonefile:\n\n{3}\n'.format(cookies, zone_id, zone_file[0], zone_file[1]))
     update_url = '{0}/dns/update'.format(base_url)
     r = requests.post(
         update_url, 
@@ -255,7 +255,7 @@ def delete_txt_record(args, cookies):
     zone_file = _edit_zone_file(zone_id, cookies, domain, token, 'delete')
     delete_txt_record = _update_zone_file(zone_id, cookies, zone_file)
     if delete_txt_record: 
-        logger.debug(' + Deleted TXT record for {0} on Hetzner Robot'.format(domain))
+        logger.debug(' + Deleted TXT record for _acme-challenge.{0} on Hetzner Robot'.format(domain))
     else:
         logger.error(' + Error during updating zone for _acme-challenge.{0} on Hetzner Robot!'.format(domain))
         sys.exit(1)
@@ -296,7 +296,7 @@ def create_all_txt_records(args):
     if _logout(cookies):
         logger.debug(' + Hetzner Robot hook finished: deploy_challenge')
     else:
-        logger.error(' + Hetzner Robot hook finished without logout from Hetzner Robot: deploy_challenge')
+        logger.error(' + Hetzner Robot hook finished (with logout error): deploy_challenge')
         
 
 
@@ -308,7 +308,7 @@ def delete_all_txt_records(args):
     if _logout(cookies):
         logger.debug(' + Hetzner Robot hook finished: clean_challenge')
     else:
-        logger.error(' + Hetzner Robot hook finished without logout from Hetzner Robot: clean_challenge')
+        logger.error(' + Hetzner Robot hook finished (with logout error): clean_challenge')
 
 
 def exit_hook(args):
