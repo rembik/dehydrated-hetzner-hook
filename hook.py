@@ -88,8 +88,7 @@ def _login(username, password):
         logger.error(" + Unable to login with Hetzner credentials from config!")
         sys.exit(1)
         return
-        
-    logger.debug(' + Logged in.')    
+           
     return r.history[0].cookies
     
     
@@ -235,31 +234,30 @@ def _update_zone_file(zone_id, cookies, zone_file):
 
 def create_txt_record(args, cookies):
     domain, challenge, token = args
-    logger.debug(' + Creating TXT record: {0} => {1}'.format(domain, token))
-    logger.debug(' + Challenge: {0}'.format(challenge))
+    logger.debug(' + Challenge dns-01: _acme-challenge.{0} => {1} as TXT record'.format(domain, token))
     zone_id = _get_zone_id(domain, cookies)
     zone_file = _edit_zone_file(zone_id, cookies, domain, token, 'create')
     update_txt_record = _update_zone_file(zone_id, cookies, zone_file)
     if update_txt_record: 
-        logger.debug(' + Updated TXT record for {0} on Hetzner Robot'.format(domain))
+        logger.debug(' + Updated TXT record for _acme-challenge.{0} on Hetzner Robot'.format(domain))
     else:
-        logger.error(' + Error during updating zone for {0} on Hetzner Robot!'.format(domain))
+        logger.error(' + Error during updating zone for _acme-challenge.{0} on Hetzner Robot!'.format(domain))
         sys.exit(1)
 
 
 def delete_txt_record(args, cookies):
     domain, token = args[0], args[2]
     if not domain:
-        logger.info(" + http_request() error in letsencrypt.sh?")
+        logger.info(" + http_request() error in dehydrated?")
         return
 
     zone_id = _get_zone_id(domain, cookies)
     zone_file = _edit_zone_file(zone_id, cookies, domain, token, 'delete')
-    delete_txt_record = _update_zone_file(zone_id, cookies, zone_file, config['account']['language'])
+    delete_txt_record = _update_zone_file(zone_id, cookies, zone_file)
     if delete_txt_record: 
         logger.debug(' + Deleted TXT record for {0} on Hetzner Robot'.format(domain))
     else:
-        logger.error(' + Error during updating zone for {0} on Hetzner Robot!'.format(domain))
+        logger.error(' + Error during updating zone for _acme-challenge.{0} on Hetzner Robot!'.format(domain))
         sys.exit(1)
 
 
@@ -296,9 +294,9 @@ def create_all_txt_records(args):
             logger.info(" + DNS not propagated, waiting 30s...")
             time.sleep(30)
     if _logout(cookies):
-        logger.debug(' + Logged out')
+        logger.debug(' + Hetzner Robot hook finished: deploy_challenge')
     else:
-        logger.error(' + Can not logout!')
+        logger.error(' + Hetzner Robot hook finished without logout from Hetzner Robot: deploy_challenge')
         
 
 
@@ -308,9 +306,9 @@ def delete_all_txt_records(args):
     for i in range(0, len(args), X):
         delete_txt_record(args[i:i+X], cookies)
     if _logout(cookies):
-        logger.debug(' + Logged out')
+        logger.debug(' + Hetzner Robot hook finished: clean_challenge')
     else:
-        logger.error(' + Can not logout!')
+        logger.error(' + Hetzner Robot hook finished without logout from Hetzner Robot: clean_challenge')
 
 
 def exit_hook(args):
