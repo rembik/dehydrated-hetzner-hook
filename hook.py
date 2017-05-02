@@ -294,7 +294,7 @@ def create_all_txt_records(args):
             logger.info(" + DNS not propagated, waiting 30s...")
             time.sleep(30)
     if _logout(cookies):
-        logger.debug(' + Hetzner Robot hook finished: deploy_challenge')
+        logger.info(' + Hetzner Robot hook finished: deploy_challenge')
     else:
         logger.error(' + Hetzner Robot hook finished (with logout error): deploy_challenge')
         
@@ -306,7 +306,7 @@ def delete_all_txt_records(args):
     for i in range(0, len(args), X):
         delete_txt_record(args[i:i+X], cookies)
     if _logout(cookies):
-        logger.debug(' + Hetzner Robot hook finished: clean_challenge')
+        logger.info(' + Hetzner Robot hook finished: clean_challenge')
     else:
         logger.error(' + Hetzner Robot hook finished (with logout error): clean_challenge')
 
