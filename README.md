@@ -21,7 +21,6 @@ ln -s /opt/dehydrated/dehydrated /usr/local/bin/
 ```
 $ cd /opt/
 $ git clone https://github.com/rembik/dehydrated-hetzner-hook.git
-$ cp dehydrated-hetzner-hook/config.default.json dehydrated-hetzner-hook/config.json
 $ ln -s /opt/dehydrated-hetzner-hook/ /etc/dehydrated/hooks/hetzner
 ```
 If you are using the recommended Python 3:
