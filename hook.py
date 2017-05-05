@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 
 from __future__ import absolute_import
 from __future__ import division
@@ -40,27 +40,40 @@ try:
     base_dir = '{0}/hooks/hetzner'.format(os.environ['BASEDIR'])
 except KeyError:
     base_dir = '/opt/dehydrated-hetzner-hook'
-    logger.error(' + Unable to get dehydrated BASEDIR in environment. Use /opt/dehydrated-hetzner-hook as base directory instead.')
+    logger.error(' + Unable to get dehydrated BASEDIR in environment! Use {0} as base directory instead'.format(base_dir))
 try:
-    with open('{0}/config.json'.format(base_dir), 'r') as f:
+    auth_username = os.environ['HETZNER_USERNAME']
+    auth_password = os.environ['HETZNER_PASSWORD']
+except KeyError:
+    logger.error(' + Unable to get Hetzner Robot credentials in environment!')
+    sys.exit(1)
+try:
+    with open('{0}/accounts/{1}.json'.format(base_dir, auth_username), 'r') as f:
         config = json.load(f)
 except IOError as e:
-    logger.error(' + {0} - Can not load Hetzner Robot hook config! {1} is used as base directory for this hook!'.format(e, base_dir))
+    logger.debug(' + {0} - Can not load Hetzner Robot hook config for account "{1}"! Try to use default hook config instead'.format(e, auth_username))
+    try:
+        with open('{0}/accounts/default.json'.format(base_dir), 'r') as f:
+            config = json.load(f)
+    except IOError as e:
+        logger.error(' + {0} - Can not load default Hetzner Robot hook config!'.format(e))
+        sys.exit(1)  
 base_url = 'https://robot.your-server.de'
 response_check = {'login': {'de': 'Herzlich Willkommen auf Ihrer', 'en': 'Welcome to your'}, 'update': {'de': 'Vielen Dank', 'en': 'Thank you for'}}
 
-if config['debug'] == True:
-    logger.setLevel(logging.DEBUG)
-else:
-    logger.setLevel(logging.INFO)
+try:
+    if config['debug'] == True:
+        logger.setLevel(logging.DEBUG)
+    else:
+        logger.setLevel(logging.INFO)
 
 
 def _has_dns_propagated(name, token):
-    dns_servers = []    
-    for dns_server in config['account']['dns_servers']:
+    dns_servers = []
+    for dns_server in config['dns_servers']:
         dns_servers.append(dns_server)   
     if not dns_servers:
-        dns_servers = False      
+        dns_server = False
     try:
         if dns_servers:
             custom_resolver = dns.resolver.Resolver()
@@ -72,20 +85,20 @@ def _has_dns_propagated(name, token):
             if token in [b.decode('utf-8') for b in rdata.strings]:
                 return True            
     except dns.exception.DNSException as e:
-        logger.debug(" + {0} - Retrying query...".format(e))
+        logger.debug(' + {0} - Retrying query...'.format(e))
         
     return False
 
 
 def _login(username, password):
-    logger.debug(' + Logging in on Hetzner Robot with account "{0}"'.format(config['account']['username']))
+    logger.debug(' + Logging in on Hetzner Robot with account "{0}"'.format(username))
     login_form_url = '{0}/login'.format(base_url)
     login_url = '{0}/login/check'.format(base_url)
     r = requests.get(login_form_url)
     r = requests.post(login_url, data={'user': username, 'password': password}, cookies=r.cookies)
     # ugly: the hetzner status code is always 200 (delivering the login form as an "error message")
-    if response_check['login'][config['account']['language']] not in r.text:
-        logger.error(" + Unable to login with Hetzner credentials from config!")
+    if response_check['login'][config['language']] not in r.text:
+        logger.error(" + Unable to login with Hetzner credentials from environment!")
         sys.exit(1)
         return
            
@@ -105,13 +118,13 @@ def _get_zone_id(domain, cookies):
     tld = get_tld('http://' + domain)    
     # update zone IDs from config.json, if they are older then one day
     try:
-        zone_id_updated = time.strptime(config['account']['zone_ids_updated'], "%d-%m-%YT%H:%M:%S +0000")
+        zone_id_updated = time.strptime(config['zone_ids_updated'], "%d-%m-%YT%H:%M:%S +0000")
     except ValueError:
         zone_id_updated = time.gmtime(0)  
     if (int(time.time()) - int(time.mktime(zone_id_updated))) < 86400:
         zone_ids = {}
-        for zone_id in config['account']['zone_ids']:
-            zone_ids[zone_id] = config['account']['zone_ids'][zone_id]
+        for zone_id in config['zone_ids']:
+            zone_ids[zone_id] = config['zone_ids'][zone_id]
         logger.debug(' + Responsed {0} zone IDs'.format(len(zone_ids)))
     else:
         zone_ids = _update_zone_ids(cookies)   
@@ -131,10 +144,10 @@ def _update_zone_ids(cookies):
     logger.debug(' + Updating list of zone IDs')    
     # delete zone IDs from config
     delete_zone_ids = []
-    for zone_id in config['account']['zone_ids']:
+    for zone_id in config['zone_ids']:
         delete_zone_ids.append(zone_id)
     for zone_id in delete_zone_ids:
-        del config['account']['zone_ids'][zone_id]
+        del config['zone_ids'][zone_id]
     # get zone IDs from Hetzner Robot
     zone_ids = {}
     last_count = -1
@@ -151,11 +164,11 @@ def _update_zone_ids(cookies):
             tdTag = box.find('td', attrs={'class': 'title'})
             domain = tdTag.renderContents().decode('UTF-8')
             zone_ids[domain] = zone_id
-            config['account']['zone_ids'][domain] = zone_id        
+            config['zone_ids'][domain] = zone_id        
         page += 1
-    # save zone IDs in config.json with current timestamp       
-    config['account']['zone_ids_updated'] = time.strftime("%d-%m-%YT%H:%M:%S +0000", time.gmtime())
-    with open('{0}/config.json'.format(base_dir), 'w') as f:
+    # save zone IDs in config file with current timestamp       
+    config['zone_ids_updated'] = time.strftime("%d-%m-%YT%H:%M:%S +0000", time.gmtime())
+    with open('{0}/accounts/{1}.json'.format(base_dir, auth_username), 'w') as f:
         json.dump(config, f, indent=4, separators=(',', ': '))    
     logger.debug(' + Updated & responsed {0} zone IDs'.format(len(zone_ids)))
     
@@ -229,7 +242,7 @@ def _update_zone_file(zone_id, cookies, zone_file):
     )
       
     # ugly: the hetzner status code is always 200 (delivering the update form as an "error message")
-    return response_check['update'][config['account']['language']] in r.text
+    return response_check['update'][config['language']] in r.text
 
 
 def create_txt_record(args, cookies):
@@ -280,7 +293,7 @@ def invalid_challenge(args):
 
 
 def create_all_txt_records(args):
-    cookies = _login(config['account']['username'], config['account']['password'])  
+    cookies = _login(auth_username, auth_password)  
     X = 3
     for i in range(0, len(args), X):
         create_txt_record(args[i:i+X], cookies)
@@ -301,7 +314,7 @@ def create_all_txt_records(args):
 
 
 def delete_all_txt_records(args):
-    cookies = _login(config['account']['username'], config['account']['password'])
+    cookies = _login(auth_username, auth_password)
     X = 3
     for i in range(0, len(args), X):
         delete_txt_record(args[i:i+X], cookies)

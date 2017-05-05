@@ -1,6 +1,6 @@
 # Hetzner Robot hook for `dehydrated`
 
-This is a hook for the [Let's Encrypt](https://letsencrypt.org/) ACME client [dehydrated](https://github.com/lukas2511/dehydrated) (previously known as `letsencrypt.sh`) that allows you to use [Hetzner](https://www.hetzner.de/us/hosting/domain/registrationrobot) DNS records to respond to `dns-01` challenges (credits to [kappataumu](https://github.com/kappataumu/letsencrypt-cloudflare-hook)). Requires Python and your Hetzner Robot account(username and password) being set as config variables.
+This is a hook for the [Let's Encrypt](https://letsencrypt.org/) ACME client [dehydrated](https://github.com/lukas2511/dehydrated) (previously known as `letsencrypt.sh`) that allows you to use [Hetzner](https://www.hetzner.de/us/hosting/domain/registrationrobot) DNS records to respond to `dns-01` challenges (credits to [kappataumu](https://github.com/kappataumu/letsencrypt-cloudflare-hook)). Requires Python and your Hetzner Robot account (username and password) being set as environment variables.
 
 ## Precondition
 ```
@@ -20,7 +20,7 @@ ln -s /opt/dehydrated/dehydrated /usr/local/bin/
 
 ```
 $ cd /opt/
-$ git clone https://github.com/rembik/dehydrated-hetzner-hook
+$ git clone https://github.com/rembik/dehydrated-hetzner-hook.git
 $ cp dehydrated-hetzner-hook/config.default.json dehydrated-hetzner-hook/config.json
 $ ln -s /opt/dehydrated-hetzner-hook/ /etc/dehydrated/hooks/hetzner
 ```
@@ -29,14 +29,14 @@ If you are using the recommended Python 3:
 $ apt install python3 python3-pip
 $ pip3 install -r dehydrated-hetzner-hook/requirements.txt
 ```
+and dehydrated-hetzner-hook/hook.py change the top line to point at `python3`:
+```
+#!/usr/bin/env python3
+```
 Otherwise, if you are using Python 2 (make sure to also check the [urllib3 documentation](http://urllib3.readthedocs.org/en/latest/security.html#installing-urllib3-with-sni-support-and-certificates) for possible caveats):
 ```
 $ apt install python python-pip
 $ pip install -r dehydrated-hetzner-hook/requirements-python-2.txt
-```
-In dehydrated-hetzner-hook/hook.py change the top line to point at python2.
-```
-#!/usr/bin/env python
 ```
 
 ## Configuration
@@ -49,21 +49,24 @@ ACCOUNTDIR="${BASEDIR}/accounts"
 HOOK="${BASEDIR}/hooks/hetzner/hook.py"
 CONTACT_EMAIL="youremail@example.com"
 ```
-
-The hook script is looking for a [`config.json`](https://github.com/rembik/dehydrated-hetzner-hook/blob/master/config.default.json) and a directory `zones` in the `${BASEDIR}/hooks/hetzner` directory.
-Your account's Hetzner Robot username and password are expected to be in the config file. Because of the ugly response status codes when requesting Hetzner Robot you also need to specify your Hetzner Robot interface language [english - en | deutsch - de]. So **make sure to set**:
+Your account's Hetzner Robot username and password are expected to be environment variables. So add these lines to the `/etc/dehydrated/config` file:
 ```
-"account": {
-    "username": "hetzner-robot-user",
-    "password": "hetzner-robot-password",
-    "language": "en",
+export HETZNER_USERNAME='hetzner-robot-user'
+export HETZNER_PASSWORD='hetzner-robot-password'
+```
+The hook script is looking for a config file `accounts/${HETZNER_USERNAME}.json` and a directory `zones` in the `${BASEDIR}/hooks/hetzner` directory. If no config file for your account exists, the script will create one with the variables from [`accounts/default.json`](https://github.com/rembik/dehydrated-hetzner-hook/blob/master/accounts/default.json).
+
+Because of the ugly response status codes when requesting Hetzner Robot you also need to specify your Hetzner Robot interface language [english - en | deutsch - de]. So **make sure to set** your default language in `default.json`:
+```
+{
+    "language": "de",
     ...
 }
 ```
 
-*Optionally,* but **highly recommended**: Specify your Hetzner Nameservers (see your DNS `zone` files) to be used for propagation checking via the `accounts => dns_servers` config variable (credits to [bennettp123](https://github.com/bennettp123)):
+*Optionally,* but **highly recommended**: Customize your default Hetzner Nameservers (see your DNS `zone` files) in `default.json` to be used for propagation checking (credits to [bennettp123](https://github.com/bennettp123)):
 ```
-"account": {
+{
     "dns_servers": [
         "213.239.242.238",
         "213.133.105.6",
