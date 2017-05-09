@@ -48,10 +48,10 @@ ACCOUNTDIR="${BASEDIR}/accounts"
 HOOK="${BASEDIR}/hooks/hetzner/hook.py"
 CONTACT_EMAIL="youremail@example.com"
 ```
-Your account's Hetzner Robot username and password are expected to be environment variables. So add these lines to the `/etc/dehydrated/config` file:
+Your account's Hetzner Robot username and password are expected to be environment variables. As defaults add these lines to the `/etc/dehydrated/config` file:
 ```
-export HETZNER_USERNAME='hetzner-robot-user'
-export HETZNER_PASSWORD='hetzner-robot-password'
+export HETZNER_USERNAME='your-hetzner-user'
+export HETZNER_PASSWORD='your-hetzner-password'
 ```
 The hook script is looking for a config file `accounts/${HETZNER_USERNAME}.json` and a directory `zones` in the `${BASEDIR}/hooks/hetzner` directory. If no config file for your account exists, the script will create one with the variables from [`accounts/default.json`](https://github.com/rembik/dehydrated-hetzner-hook/blob/master/accounts/default.json).
 
@@ -120,4 +120,8 @@ Processing example.com
  + Hetzner Robot hook executing: exit_hook
 ```
 
+In environments with more than one DNS provider and/or account for `dns-01` challenging, use: 
+```
+$ HETZNER_USERNAME='your-hetzner-user' HETZNER_PASSWORD='your-hetzner-password' dehydrated -c -d 'example.com' -t 'dns-01' -k '/etc/dehydrated/hooks/hetzner/hook.py'
+```
 
