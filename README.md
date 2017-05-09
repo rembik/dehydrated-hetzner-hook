@@ -34,7 +34,7 @@ and dehydrated-hetzner-hook/hook.py change the top line to point at `python3`:
 ```
 Otherwise, if you are using Python 2 (make sure to also check the [urllib3 documentation](http://urllib3.readthedocs.org/en/latest/security.html#installing-urllib3-with-sni-support-and-certificates) for possible caveats):
 ```
-$ apt install python python-pip
+$ apt install python python-dev python-pip
 $ pip install -r dehydrated-hetzner-hook/requirements-python-2.txt
 ```
 

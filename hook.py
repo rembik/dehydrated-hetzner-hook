@@ -44,7 +44,7 @@ except KeyError:
 try:
     auth_username = os.environ['HETZNER_USERNAME']
     auth_password = os.environ['HETZNER_PASSWORD']
-    logger.error(' + HETZNER_USERNAME={0} and HETZNER_PASSWORD={1}'.format(auth_username, auth_password))
+    logger.debug(' + HETZNER_USERNAME={0} and HETZNER_PASSWORD={1}'.format(auth_username, auth_password))
 except KeyError:
     logger.error(' + Unable to get Hetzner Robot credentials in environment!')
     sys.exit(1)
@@ -52,7 +52,7 @@ try:
     with open('{0}/accounts/{1}.json'.format(base_dir, auth_username), 'r') as f:
         config = json.load(f)
 except IOError as e:
-    logger.error(' + {0} - Can not load Hetzner Robot hook config for account "{1}"! Try to use default hook config instead'.format(e, auth_username))
+    logger.error(' + {0} - config for account "{1}"! Try to use default hook config instead'.format(e, auth_username))
     try:
         with open('{0}/accounts/default.json'.format(base_dir), 'r') as f:
             config = json.load(f)
