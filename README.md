@@ -19,14 +19,14 @@ ln -s /opt/dehydrated/dehydrated /usr/local/bin/
 ## Installation
 
 ```
-$ sudo su \
-cd /opt/ \
+$ sudo su
+cd /opt/
 git clone https://github.com/rembik/dehydrated-hetzner-hook.git
 ln -s /opt/dehydrated-hetzner-hook/ /etc/dehydrated/hooks/hetzner
 ```
 If you are using the recommended Python 3:
 ```
-$ sudo su \
+$ sudo su
 apt-get install python3 python3-pip
 pip3 install -r dehydrated-hetzner-hook/requirements.txt
 ```
@@ -36,7 +36,7 @@ and dehydrated-hetzner-hook/hook.py change the top line to point at `python3`:
 ```
 Otherwise, if you are using Python 2 (make sure to also check the [urllib3 documentation](http://urllib3.readthedocs.org/en/latest/security.html#installing-urllib3-with-sni-support-and-certificates) for possible caveats):
 ```
-$ sudo su \
+$ sudo su
 apt-get install python python-dev python-pip
 pip install -r dehydrated-hetzner-hook/requirements-python-2.txt
 ```
