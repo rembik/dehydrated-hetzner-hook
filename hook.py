@@ -59,6 +59,7 @@ except IOError as e:
         logger.error(' + {0} - Can not load default Hetzner Robot hook config!'.format(e))
         sys.exit(1)  
 base_url = 'https://robot.your-server.de'
+login_url = 'https://accounts.hetzner.com'
 response_check = {'login': {'de': 'Herzlich Willkommen auf Ihrer', 'en': 'Welcome to your'}, 'update': {'de': 'Vielen Dank', 'en': 'Thank you for'}}
 
 if config['debug'] == True:
@@ -91,10 +92,10 @@ def _has_dns_propagated(name, token):
 
 def _login(username, password):
     logger.debug(' + Logging in on Hetzner Robot with account "{0}"'.format(username))
-    login_form_url = '{0}/login'.format(base_url)
-    login_url = '{0}/login/check'.format(base_url)
+    login_form_url = '{0}/login'.format(login_url)
+    login_check_url = '{0}/login/check'.format(login_url)
     r = requests.get(login_form_url)
-    r = requests.post(login_url, data={'user': username, 'password': password}, cookies=r.cookies)
+    r = requests.post(login_check_url, data={'_username': username, '_password': password}, cookies=r.cookies)
     # ugly: the hetzner status code is always 200 (delivering the login form as an "error message")
     if response_check['login'][config['language']] not in r.text:
         logger.error(" + Unable to login with Hetzner credentials from environment!")
