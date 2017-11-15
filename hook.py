@@ -92,12 +92,17 @@ def _has_dns_propagated(name, token):
 
 def _login(username, password):
     logger.debug(' + Logging in on Hetzner Robot with account "{0}"'.format(username))
-    login_form_url = '{0}/login'.format(login_url)
+     login_form_url = '{0}/login'.format(login_url)
     login_check_url = '{0}/login_check'.format(login_url)
-    r = requests.get(login_form_url)
-    r = requests.post(login_check_url, data={'_username': username, '_password': password}, cookies=r.cookies)
-    # ugly: the hetzner status code is always 200 (delivering the login form as an "error message")
-    if response_check['login'][config['language']] not in r.text:
+    session = requests.session()
+    session.get(login_form_url)
+    r = session.post(login_check_url, data={'_username': username, '_password': password})
+    logger.debug(' + Landing on page {0} with status code {1} and cookie {2}'.format(r.url,r.status_code,r.history[0].cookies))
+    if '{0}/account/masterdata'.format(login_url) == r.url and r.status_code == 200:
+        r = session.get(base_url)
+        logger.debug(' + Landing on page {0} with status code {1} and cookie {2}'.format(r.url,r.status_code,r.history[0].cookies))
+    # ugly: the hetzner status code is always 200, but redirecting back to the login page form with an "error message".
+    if base_url not in r.url or r.status_code != 200:
         logger.error(" + Unable to login with Hetzner credentials from environment!")
         sys.exit(1)
         return
@@ -107,10 +112,10 @@ def _login(username, password):
     
 def _logout(cookies):
     logger.debug(' + Logging out from Hetzner Robot')
-    logout_url = '{0}/login/logout'.format(base_url)
+    logout_url = '{0}/login/logout/r/true'.format(base_url)
     r = requests.get(logout_url, cookies=cookies)
     
-    return r.status_code == 200
+    return '{0}/logout'.format(login_url) in r.url and r.status_code == 200
 
 
 def _get_zone_id(domain, cookies):
