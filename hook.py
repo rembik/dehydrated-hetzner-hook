@@ -93,7 +93,7 @@ def _has_dns_propagated(name, token):
 def _login(username, password):
     logger.debug(' + Logging in on Hetzner Robot with account "{0}"'.format(username))
     login_form_url = '{0}/login'.format(login_url)
-    login_check_url = '{0}/login/check'.format(login_url)
+    login_check_url = '{0}/login_check'.format(login_url)
     r = requests.get(login_form_url)
     r = requests.post(login_check_url, data={'_username': username, '_password': password}, cookies=r.cookies)
     # ugly: the hetzner status code is always 200 (delivering the login form as an "error message")
