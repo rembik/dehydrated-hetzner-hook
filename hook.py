@@ -92,7 +92,7 @@ def _has_dns_propagated(name, token):
 
 def _login(username, password):
     logger.debug(' + Logging in on Hetzner Robot with account "{0}"'.format(username))
-     login_form_url = '{0}/login'.format(login_url)
+    login_form_url = '{0}/login'.format(login_url)
     login_check_url = '{0}/login_check'.format(login_url)
     session = requests.session()
     session.get(login_form_url)
