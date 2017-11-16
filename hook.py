@@ -61,6 +61,7 @@ except IOError as e:
 base_url = 'https://robot.your-server.de'
 login_url = 'https://accounts.hetzner.com'
 response_check = {'login': {'de': 'Herzlich Willkommen auf Ihrer', 'en': 'Welcome to your'}, 'update': {'de': 'Vielen Dank', 'en': 'Thank you for'}}
+session = requests.session()
 
 if config['debug'] == True:
     logger.setLevel(logging.DEBUG)
@@ -94,7 +95,6 @@ def _login(username, password):
     logger.debug(' + Logging in on Hetzner Robot with account "{0}"'.format(username))
     login_form_url = '{0}/login'.format(login_url)
     login_check_url = '{0}/login_check'.format(login_url)
-    session = requests.session()
     session.get(login_form_url)
     r = session.post(login_check_url, data={'_username': username, '_password': password})
     logger.debug(' + Landing on page {0} with status code {1} and cookie {2}'.format(r.url,r.status_code,r.history[0].cookies))
@@ -106,11 +106,11 @@ def _login(username, password):
         logger.error(" + Unable to login with Hetzner credentials from environment!")
         sys.exit(1)
         return
-           
-    return session
+    else:       
+        return
     
     
-def _logout(session):
+def _logout():
     logger.debug(' + Logging out from Hetzner Robot')
     logout_url = '{0}/login/logout/r/true'.format(base_url)
     r = session.get(logout_url)
@@ -118,7 +118,7 @@ def _logout(session):
     return '{0}/logout'.format(login_url) in r.url and r.status_code == 200
 
 
-def _get_zone_id(domain, session):
+def _get_zone_id(domain):
     logger.debug(' + Requesting list of zone IDs')
     tld = get_tld('http://' + domain)    
     # update zone IDs from config.json, if they are older then one day
@@ -132,7 +132,7 @@ def _get_zone_id(domain, session):
             zone_ids[zone_id] = config['zone_ids'][zone_id]
         logger.debug(' + Responsed {0} zone IDs'.format(len(zone_ids)))
     else:
-        zone_ids = _update_zone_ids(session)   
+        zone_ids = _update_zone_ids()   
     
     return zone_ids[tld]
 
@@ -145,7 +145,7 @@ def _extract_zone_id_from_js(s):
     return int(m.group(1))
     
     
-def _update_zone_ids(session):
+def _update_zone_ids():
     logger.debug(' + Updating list of zone IDs')    
     # delete zone IDs from config
     delete_zone_ids = []
@@ -180,7 +180,7 @@ def _update_zone_ids(session):
     return zone_ids
 
 
-def _get_zone_file(zone_id, session):
+def _get_zone_file(zone_id):
     dns_url = '{0}/dns/update/id/{1}'.format(base_url, zone_id)
     r = session.get(dns_url)
     soup = BeautifulSoup(r.text, 'html5lib')
@@ -192,14 +192,14 @@ def _get_zone_file(zone_id, session):
     return zone_file
 
 
-def _edit_zone_file(zone_id, session, domain, token, edit_txt_record):
+def _edit_zone_file(zone_id, domain, token, edit_txt_record):
     tld = get_tld('http://' + domain, as_object=True)
     if not tld.subdomain:
         name = '_acme-challenge'
     else:
         name = '{0}.{1}'.format('_acme-challenge', tld.subdomain)
     logger.debug(' + Get zone {0} for TXT record _acme-challenge.{1} from Hetzner Robot'.format(tld, domain))    
-    zone_file = _get_zone_file(zone_id, session)
+    zone_file = _get_zone_file(zone_id)
     logger.debug(' + Searching zone {0} for TXT record _acme-challenge.{1}'.format(tld, domain))
     file = os.path.join('{0}/zones'.format(base_dir), '{0}.txt'.format(tld))
     txt_record_regex = re.compile(name + '\s+IN\s+TXT\s+"'+ token + '"')
@@ -237,7 +237,7 @@ def _edit_zone_file(zone_id, session, domain, token, edit_txt_record):
     return zone_file
     
 
-def _update_zone_file(zone_id, session, zone_file):
+def _update_zone_file(zone_id, zone_file):
     logger.debug(' + Updating zone on Hetzner Robot:\n   id: {1}\n   _csrf_token: {2}\n   zonefile:\n\n{3}\n'.format(zone_id, zone_file[0], zone_file[1]))
     update_url = '{0}/dns/update'.format(base_url)
     r = session.post(
@@ -249,12 +249,12 @@ def _update_zone_file(zone_id, session, zone_file):
     return response_check['update'][config['language']] in r.text
 
 
-def create_txt_record(args, session):
+def create_txt_record(args):
     domain, challenge, token = args
     logger.debug(' + Challenge dns-01: _acme-challenge.{0} => {1} as TXT record'.format(domain, token))
-    zone_id = _get_zone_id(domain, session)
-    zone_file = _edit_zone_file(zone_id, session, domain, token, 'create')
-    update_txt_record = _update_zone_file(zone_id, session, zone_file)
+    zone_id = _get_zone_id(domain)
+    zone_file = _edit_zone_file(zone_id, domain, token, 'create')
+    update_txt_record = _update_zone_file(zone_id, zone_file)
     if update_txt_record: 
         logger.debug(' + Updated TXT record for _acme-challenge.{0} on Hetzner Robot'.format(domain))
     else:
@@ -262,15 +262,15 @@ def create_txt_record(args, session):
         sys.exit(1)
 
 
-def delete_txt_record(args, session):
+def delete_txt_record(args):
     domain, token = args[0], args[2]
     if not domain:
         logger.info(" + http_request() error in dehydrated?")
         return
 
-    zone_id = _get_zone_id(domain, session)
-    zone_file = _edit_zone_file(zone_id, session, domain, token, 'delete')
-    delete_txt_record = _update_zone_file(zone_id, session, zone_file)
+    zone_id = _get_zone_id(domain)
+    zone_file = _edit_zone_file(zone_id, domain, token, 'delete')
+    delete_txt_record = _update_zone_file(zone_id, zone_file)
     if delete_txt_record: 
         logger.debug(' + Deleted TXT record for _acme-challenge.{0} on Hetzner Robot'.format(domain))
     else:
@@ -297,10 +297,10 @@ def invalid_challenge(args):
 
 
 def create_all_txt_records(args):
-    session = _login(auth_username, auth_password)  
+    _login(auth_username, auth_password)  
     X = 3
     for i in range(0, len(args), X):
-        create_txt_record(args[i:i+X], session)
+        create_txt_record(args[i:i+X])
     # give it 10 seconds to settle down and avoid nxdomain caching
     logger.info(" + Settling down for 10s...")
     time.sleep(10)
@@ -310,7 +310,7 @@ def create_all_txt_records(args):
         while(_has_dns_propagated(name, token) == False):
             logger.info(" + DNS not propagated, waiting 30s...")
             time.sleep(30)
-    if _logout(session):
+    if _logout():
         logger.info(' + Hetzner Robot hook finished: deploy_challenge')
     else:
         logger.error(' + Hetzner Robot hook finished (with logout error): deploy_challenge')
@@ -318,11 +318,11 @@ def create_all_txt_records(args):
 
 
 def delete_all_txt_records(args):
-    session = _login(auth_username, auth_password)
+    _login(auth_username, auth_password)
     X = 3
     for i in range(0, len(args), X):
-        delete_txt_record(args[i:i+X], session)
-    if _logout(session):
+        delete_txt_record(args[i:i+X])
+    if _logout():
         logger.info(' + Hetzner Robot hook finished: clean_challenge')
     else:
         logger.error(' + Hetzner Robot hook finished (with logout error): clean_challenge')
