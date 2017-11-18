@@ -322,6 +322,9 @@ def delete_all_txt_records(args):
     X = 3
     for i in range(0, len(args), X):
         delete_txt_record(args[i:i+X], session)
+        # give it 10 seconds to assure zonefile is updated
+        logger.info(" + Settling down for 10s...")
+        time.sleep(10)
     if _logout(session):
         logger.info(' + Hetzner Robot hook finished: clean_challenge')
     else:
