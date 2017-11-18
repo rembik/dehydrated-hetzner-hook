@@ -238,7 +238,7 @@ def _edit_zone_file(zone_id, session, domain, token, edit_txt_record):
     
 
 def _update_zone_file(zone_id, session, zone_file):
-    logger.debug(' + Updating zone on Hetzner Robot:\n   id: {1}\n   _csrf_token: {2}\n   zonefile:\n\n{3}\n'.format(zone_id, zone_file[0], zone_file[1]))
+    logger.debug(' + Updating zone on Hetzner Robot:\n   id: {0}\n   _csrf_token: {1}\n   zonefile:\n\n{2}\n'.format(zone_id, zone_file[0], zone_file[1]))
     update_url = '{0}/dns/update'.format(base_url)
     r = session.post(
         update_url, 
