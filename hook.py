@@ -71,7 +71,8 @@ else:
 def _check_dns_cname(domain):
     dns_servers = []
     name = "{0}.{1}".format('_acme-challenge', domain)
-    logger.debug(' + Checking domain "{0}" for CNAME entry'.format(name))
+    tld = get_tld('http://' + name, as_object=True)
+    logger.debug(' + Checking domain "{0}" for CNAME entry with subdomain {1}'.format(name, tld.subdomain))
     for dns_server in config['dns_servers']:
         dns_servers.append(dns_server)
     if not dns_servers:
@@ -84,7 +85,12 @@ def _check_dns_cname(domain):
         else:
             dns_response = dns.resolver.query(name, 'CNAME')
         for rdata in dns_response:
-            logger.debug(' + Domain "{0}" has CNAME entry to "{1}"'.format(name, rdata))
+            if tld.subdomain in rdata:
+                cname = re.match('.*(?<!\.)$', rdata)
+                domain = get_tld('http://' + cname)
+                logger.debug(' + Domain "{0}" has CNAME entry "{1}"'.format(name, cname))
+            else:
+                logger.debug(' + Domain "{0}" has no CNAME entry with subdomain "{1}"'.format(name, tld.subdomain))
     except dns.exception.DNSException as e:
         logger.debug(' + Domain "{0}" has no CNAME entry - {1}'.format(name, e))
         
@@ -144,7 +150,7 @@ def _logout(session):
 
 def _get_zone_id(domain, session):
     logger.debug(' + Requesting list of zone IDs')
-    tld = get_tld('http://' + domain)    
+    tld = get_tld('http://' + domain)
     # update zone IDs from config.json, if they are older then one day
     try:
         zone_id_updated = time.strptime(config['zone_ids_updated'], "%d-%m-%YT%H:%M:%S +0000")
