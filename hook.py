@@ -71,8 +71,7 @@ else:
 def _check_dns_cname(domain):
     dns_servers = []
     challenge = "{0}.{1}".format('_acme-challenge', domain)
-    domain_tld = get_tld('http://' + domain, as_object=True)
-    logger.debug(' + Checking domain {0} for CNAME entry with subdomain _acme-challenge.{1}'.format(challenge, domain_tld.subdomain))
+    logger.debug(' + Checking domain {0} for valid CNAME entry'.format(challenge))
     for dns_server in config['dns_servers']:
         dns_servers.append(dns_server)
     if not dns_servers:
@@ -87,11 +86,13 @@ def _check_dns_cname(domain):
         for rdata in dns_response:
             cname = str(rdata)[:-1] if str(rdata).endswith('.') else str(rdata)
             cname_tld = get_tld('http://' + cname)
-            if '_acme-challenge.' + domain_tld.subdomain + '.' + cname_tld == cname:
-                domain = domain_tld.subdomain + '.' + cname_tld
-                logger.debug(' + Domain {0} has CNAME entry {1}'.format(challenge, cname))
+            domain_tld = get_tld('http://' + domain, as_object=True)
+            valid_cname = '_acme-challenge.' + domain_tld.subdomain + '.' + domain_tld + '.' + cname_tld 
+            if valid_cname == cname:
+                domain = domain_tld.subdomain + '.' + domain_tld + '.' + cname_tld
+                logger.debug(' + Domain {0} has valid CNAME entry {1}'.format(challenge, valid_cname))
             else:
-                logger.error(' + Domain {0} has wrong CNAME entry. Use _acme-challenge.{1}.{2} instead of {3}!'.format(challenge, domain_tld.subdomain, cname_tld, cname))
+                logger.error(' + Domain {0} has invalid CNAME entry. Use {1} instead of {2}!'.format(challenge, valid_cname, cname))
                 sys.exit(1)
     except dns.exception.DNSException as e:
         logger.debug(' + Domain {0} has no CNAME entry'.format(challenge))
