@@ -70,9 +70,9 @@ else:
 
 def _check_dns_cname(domain):
     dns_servers = []
-    name = "{0}.{1}".format('_acme-challenge', domain)
-    tld = get_tld('http://' + name, as_object=True)
-    logger.debug(' + Checking domain "{0}" for CNAME entry with subdomain {1}'.format(name, tld.subdomain))
+    challenge = "{0}.{1}".format('_acme-challenge', domain)
+    domain_tld = get_tld('http://' + domain, as_object=True)
+    logger.debug(' + Checking domain {0} for CNAME entry with subdomain _acme-challenge.{1}'.format(challenge, domain_tld.subdomain))
     for dns_server in config['dns_servers']:
         dns_servers.append(dns_server)
     if not dns_servers:
@@ -81,19 +81,21 @@ def _check_dns_cname(domain):
         if dns_servers:
             custom_resolver = dns.resolver.Resolver()
             custom_resolver.nameservers = dns_servers
-            dns_response = custom_resolver.query(name, 'CNAME')
+            dns_response = custom_resolver.query(challenge, 'CNAME')
         else:
-            dns_response = dns.resolver.query(name, 'CNAME')
+            dns_response = dns.resolver.query(challenge, 'CNAME')
         for rdata in dns_response:
-            if tld.subdomain in rdata:
-                cname = re.match('.*(?<!\.)$', rdata)
-                domain = get_tld('http://' + cname)
-                logger.debug(' + Domain "{0}" has CNAME entry "{1}"'.format(name, cname))
+            cname = str(rdata)[:-1] if str(rdata).endswith('.') else str(rdata)
+            cname_tld = get_tld('http://' + cname)
+            if '_acme-challenge.' + domain_tld.subdomain + '.' + cname_tld == cname:
+                domain = domain_tld.subdomain + '.' + cname_tld
+                logger.debug(' + Domain {0} has CNAME entry {1}'.format(challenge, cname))
             else:
-                logger.debug(' + Domain "{0}" has no CNAME entry with subdomain "{1}"'.format(name, tld.subdomain))
+                logger.error(' + Domain {0} has wrong CNAME entry. Use _acme-challenge.{1}.{2} instead of {3}!'.format(challenge, domain_tld.subdomain, cname_tld, cname))
+                sys.exit(1)
     except dns.exception.DNSException as e:
-        logger.debug(' + Domain "{0}" has no CNAME entry - {1}'.format(name, e))
-        
+        logger.debug(' + Domain {0} has no CNAME entry'.format(challenge))
+
     return domain
 
 
