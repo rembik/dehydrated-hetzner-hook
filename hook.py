@@ -90,7 +90,8 @@ def _check_dns_cname(domain):
                 domain = cname[16:]
                 logger.debug(' + Domain {0} has valid CNAME entry {1}'.format(challenge, cname))
             else:
-                logger.error(' + Domain {0} has invalid CNAME entry {1}. Use CNAME with _acme-challenge. at the beginning and valid top level domain at the end!'.format(challenge, cname))
+                logger.error(' + Domain {0} has invalid CNAME entry {1}'.format(challenge, cname))
+                logger.error(' + Use CNAME with _acme-challenge. at the beginning and valid top level domain at the end!')
                 sys.exit(1)
     except dns.exception.DNSException as e:
         logger.debug(' + Domain {0} has no CNAME entry'.format(challenge))
