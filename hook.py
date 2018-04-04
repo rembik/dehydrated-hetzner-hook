@@ -86,11 +86,11 @@ def _check_dns_cname(domain):
         for rdata in dns_response:
             cname = str(rdata)[:-1] if str(rdata).endswith('.') else str(rdata)
             cname_tld = get_tld('http://' + cname, fail_silently=True)
-            if cname_tld != None:
-                domain = cname[16:] if cname.startswith('_acme-challenge.') else cname
+            if cname_tld != None and cname.startswith('_acme-challenge.'):
+                domain = cname[16:]
                 logger.debug(' + Domain {0} has valid CNAME entry {1}'.format(challenge, cname))
             else:
-                logger.error(' + Domain {0} has invalid CNAME entry. Use CNAME with valid top level domain instead of {1}!'.format(challenge, cname))
+                logger.error(' + Domain {0} has invalid CNAME entry {1}. Use CNAME with _acme-challenge. at the beginning and valid top level domain at the end!'.format(challenge, cname))
                 sys.exit(1)
     except dns.exception.DNSException as e:
         logger.debug(' + Domain {0} has no CNAME entry'.format(challenge))
@@ -169,7 +169,7 @@ def _get_zone_id(domain, session):
 
 
 def _extract_zone_id_from_js(s):
-    r = re.compile('\'(\d+)\'')
+    r = re.compile(r'\'(\d+)\'')
     m = r.search(s)
     if not m: return False
     
@@ -233,7 +233,7 @@ def _edit_zone_file(zone_id, session, domain, token, edit_txt_record):
     zone_file = _get_zone_file(zone_id, session)
     logger.debug(' + Searching zone {0} for TXT record _acme-challenge.{1}'.format(tld, domain))
     file = os.path.join('{0}/zones'.format(base_dir), '{0}.txt'.format(tld))
-    txt_record_regex = re.compile(name + '\s+IN\s+TXT\s+"'+ token + '"')
+    txt_record_regex = re.compile(name + r'\s+IN\s+TXT\s+"'+ token + '"')
     found_txt_record = False
     f = open(file,'w')
     f.write(zone_file[1])
