@@ -125,12 +125,12 @@ Processing example.com
 ```
 
 For `CNAME dns-01 challenge support` add a CNAME entry from the requested domain to the Hetzner domain that should accomplish the dns challenge.
-The CNAME for dns-01 challenging `sub.example.org` with `example.com` should look like this: 
+The CNAME for dns-01 challenging `sub.example.org` with `example.com` should look similar to this: 
 ```
-_acme-challenge.sub    IN CNAME   _acme-challenge.sub.example.org.example.com.
+_acme-challenge.sub    IN CNAME   _acme-challenge.example.com.
 ```
 
 In environments with more than one DNS provider and/or account for `dns-01` challenging, use: 
-```
-$ HETZNER_USERNAME='your-hetzner-user' HETZNER_PASSWORD='your-hetzner-password' dehydrated -c -d 'subdomain.example.org' -t 'dns-01' -k '/etc/dehydrated/hooks/hetzner/hook.py'
+```shell
+$ HETZNER_USERNAME='your-hetzner-user' HETZNER_PASSWORD='your-hetzner-password' dehydrated -c -d 'sub.example.org' -t 'dns-01' -k '/etc/dehydrated/hooks/hetzner/hook.py'
 ```
