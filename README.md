@@ -92,6 +92,7 @@ example.org www.example.org dev.example.org
 
 ```
 $ dehydrated -c
+ + Hetzner Robot hook executing: startup_hook
 Processing example.com
  + Signing domains...
  + Generating private key...
@@ -123,8 +124,13 @@ Processing example.com
  + Hetzner Robot hook executing: exit_hook
 ```
 
-In environments with more than one DNS provider and/or account for `dns-01` challenging, use: 
+For `CNAME dns-01 challenge support` add a CNAME entry from the requested domain to the Hetzner domain that should accomplish the dns challenge.
+The CNAME for dns-01 challenging `sub.example.org` with `example.com` should look like this: 
 ```
-$ HETZNER_USERNAME='your-hetzner-user' HETZNER_PASSWORD='your-hetzner-password' dehydrated -c -d 'example.com' -t 'dns-01' -k '/etc/dehydrated/hooks/hetzner/hook.py'
+_acme-challenge.sub    IN CNAME   _acme-challenge.sub.example.org.example.com.
 ```
 
+In environments with more than one DNS provider and/or account for `dns-01` challenging, use: 
+```
+$ HETZNER_USERNAME='your-hetzner-user' HETZNER_PASSWORD='your-hetzner-password' dehydrated -c -d 'subdomain.example.org' -t 'dns-01' -k '/etc/dehydrated/hooks/hetzner/hook.py'
+```

@@ -68,8 +68,41 @@ else:
     logger.setLevel(logging.INFO)
 
 
-def _has_dns_propagated(name, token):
+def _check_dns_cname(domain):
     dns_servers = []
+    challenge = "{0}.{1}".format('_acme-challenge', domain)
+    logger.debug(' + Checking domain {0} for valid CNAME entry'.format(challenge))
+    for dns_server in config['dns_servers']:
+        dns_servers.append(dns_server)
+    if not dns_servers:
+        dns_servers = False
+    try:
+        if dns_servers:
+            custom_resolver = dns.resolver.Resolver()
+            custom_resolver.nameservers = dns_servers
+            dns_response = custom_resolver.query(challenge, 'CNAME')
+        else:
+            dns_response = dns.resolver.query(challenge, 'CNAME')
+        for rdata in dns_response:
+            cname = str(rdata)[:-1] if str(rdata).endswith('.') else str(rdata)
+            cname_tld = get_tld('http://' + cname)
+            domain_tld = get_tld('http://' + domain, as_object=True)
+            valid_cname = '_acme-challenge.' + domain_tld.subdomain + '.' + domain_tld + '.' + cname_tld 
+            if valid_cname == cname:
+                domain = domain_tld.subdomain + '.' + domain_tld + '.' + cname_tld
+                logger.debug(' + Domain {0} has valid CNAME entry {1}'.format(challenge, valid_cname))
+            else:
+                logger.error(' + Domain {0} has invalid CNAME entry. Use {1} instead of {2}!'.format(challenge, valid_cname, cname))
+                sys.exit(1)
+    except dns.exception.DNSException as e:
+        logger.debug(' + Domain {0} has no CNAME entry'.format(challenge))
+
+    return domain
+
+
+def _has_dns_propagated(domain, token):
+    dns_servers = []
+    name = "{0}.{1}".format('_acme-challenge', domain)
     for dns_server in config['dns_servers']:
         dns_servers.append(dns_server)   
     if not dns_servers:
@@ -120,7 +153,7 @@ def _logout(session):
 
 def _get_zone_id(domain, session):
     logger.debug(' + Requesting list of zone IDs')
-    tld = get_tld('http://' + domain)    
+    tld = get_tld('http://' + domain)
     # update zone IDs from config.json, if they are older then one day
     try:
         zone_id_updated = time.strptime(config['zone_ids_updated'], "%d-%m-%YT%H:%M:%S +0000")
@@ -250,7 +283,8 @@ def _update_zone_file(zone_id, session, zone_file):
 
 
 def create_txt_record(args, session):
-    domain, challenge, token = args
+    domain = _check_dns_cname(args[0])
+    token = args[2]
     logger.debug(' + Challenge dns-01: _acme-challenge.{0} => {1} as TXT record'.format(domain, token))
     zone_id = _get_zone_id(domain, session)
     zone_file = _edit_zone_file(zone_id, session, domain, token, 'create')
@@ -263,7 +297,8 @@ def create_txt_record(args, session):
 
 
 def delete_txt_record(args, session):
-    domain, token = args[0], args[2]
+    domain = _check_dns_cname(args[0])
+    token = args[2]
     if not domain:
         logger.info(" + http_request() error in dehydrated?")
         return
@@ -306,15 +341,13 @@ def create_all_txt_records(args):
     time.sleep(10)
     for i in range(0, len(args), X):
         domain, token = args[i], args[i+2]
-        name = "{0}.{1}".format('_acme-challenge', domain)
-        while(_has_dns_propagated(name, token) == False):
+        while(_has_dns_propagated(domain, token) == False):
             logger.info(" + DNS not propagated, waiting 30s...")
             time.sleep(30)
     if _logout(session):
         logger.info(' + Hetzner Robot hook finished: deploy_challenge')
     else:
         logger.error(' + Hetzner Robot hook finished (with logout error): deploy_challenge')
-        
 
 
 def delete_all_txt_records(args):
@@ -330,8 +363,10 @@ def delete_all_txt_records(args):
     else:
         logger.error(' + Hetzner Robot hook finished (with logout error): clean_challenge')
 
+
 def startup_hook(args):
     return
+
 
 def exit_hook(args):
     return
