@@ -85,14 +85,12 @@ def _check_dns_cname(domain):
             dns_response = dns.resolver.query(challenge, 'CNAME')
         for rdata in dns_response:
             cname = str(rdata)[:-1] if str(rdata).endswith('.') else str(rdata)
-            cname_tld = get_tld('http://' + cname)
-            domain_tld = get_tld('http://' + domain, as_object=True)
-            valid_cname = '_acme-challenge.' + domain_tld.subdomain + '.' + domain_tld + '.' + cname_tld 
-            if valid_cname == cname:
-                domain = domain_tld.subdomain + '.' + domain_tld + '.' + cname_tld
-                logger.debug(' + Domain {0} has valid CNAME entry {1}'.format(challenge, valid_cname))
+            cname_tld = get_tld('http://' + cname, fail_silently=True)
+            if cname_tld != None:
+                domain = cname[16:] if cname.startswith('_acme-challenge.') else cname
+                logger.debug(' + Domain {0} has valid CNAME entry {1}'.format(challenge, cname))
             else:
-                logger.error(' + Domain {0} has invalid CNAME entry. Use {1} instead of {2}!'.format(challenge, valid_cname, cname))
+                logger.error(' + Domain {0} has invalid CNAME entry. Use CNAME with valid top level domain instead of {1}!'.format(challenge, cname))
                 sys.exit(1)
     except dns.exception.DNSException as e:
         logger.debug(' + Domain {0} has no CNAME entry'.format(challenge))
@@ -102,7 +100,7 @@ def _check_dns_cname(domain):
 
 def _has_dns_propagated(domain, token):
     dns_servers = []
-    name = "{0}.{1}".format('_acme-challenge', domain)
+    challenge = "{0}.{1}".format('_acme-challenge', domain)
     for dns_server in config['dns_servers']:
         dns_servers.append(dns_server)   
     if not dns_servers:
@@ -111,9 +109,9 @@ def _has_dns_propagated(domain, token):
         if dns_servers:
             custom_resolver = dns.resolver.Resolver()
             custom_resolver.nameservers = dns_servers
-            dns_response = custom_resolver.query(name, 'TXT')
+            dns_response = custom_resolver.query(challenge, 'TXT')
         else:
-            dns_response = dns.resolver.query(name, 'TXT') 
+            dns_response = dns.resolver.query(challenge, 'TXT') 
         for rdata in dns_response:
             if token in [b.decode('utf-8') for b in rdata.strings]:
                 return True            
