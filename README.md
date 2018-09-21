@@ -125,7 +125,7 @@ Processing example.com
 ```
 
 For `CNAME dns-01 challenge support` add a CNAME entry from the requested domain to the Hetzner domain that should accomplish the dns challenge.
-The CNAME for dns-01 challenging `sub.example.org` with `example.com` should look similar to this: 
+The CNAME for dns-01 challenging `sub.example.org` with `example.com` should look similar to this _(Note: The CNAME entry must be added  to the domain `example.org`, not to `example.com`!)_: 
 ```
 _acme-challenge.sub    IN CNAME   _acme-challenge.example.com.
 ```
