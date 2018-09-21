@@ -70,31 +70,41 @@ else:
 
 def _check_dns_cname(domain):
     dns_servers = []
-    challenge = "{0}.{1}".format('_acme-challenge', domain)
-    logger.debug(' + Checking domain {0} for valid CNAME entry'.format(challenge))
-    for dns_server in config['dns_servers']:
-        dns_servers.append(dns_server)
-    if not dns_servers:
-        dns_servers = False
-    try:
-        if dns_servers:
-            custom_resolver = dns.resolver.Resolver()
-            custom_resolver.nameservers = dns_servers
-            dns_response = custom_resolver.query(challenge, 'CNAME')
-        else:
-            dns_response = dns.resolver.query(challenge, 'CNAME')
-        for rdata in dns_response:
-            cname = str(rdata)[:-1] if str(rdata).endswith('.') else str(rdata)
-            cname_tld = get_tld('http://' + cname, fail_silently=True)
-            if cname_tld != None and cname.startswith('_acme-challenge.'):
-                domain = cname[16:]
-                logger.debug(' + Domain {0} has valid CNAME entry {1}'.format(challenge, cname))
+    domain_parts = get_tld('http://' + domain, as_object=True)
+    challenges = domain_parts.subdomain.split(".") if domain_parts.subdomain != None else []
+    challenges = challenges.append(domain_parts.fld)
+    for i in xrange(0, len(challenges)-1):
+       for j in xrange(i+1, len(challenges)):
+           challenges[i] = "{0}.{1}".format(challenges[i],challenges[j])
+    for challenge in challenges:
+        challenge = "{0}.{1}".format('_acme-challenge', challenge)
+        logger.debug(' + Checking domain {0} for valid CNAME entry'.format(challenge))
+        for dns_server in config['dns_servers']:
+            dns_servers.append(dns_server)
+        if not dns_servers:
+            dns_servers = False
+        try:
+            if dns_servers:
+                custom_resolver = dns.resolver.Resolver()
+                custom_resolver.nameservers = dns_servers
+                dns_response = custom_resolver.query(challenge, 'CNAME')
             else:
-                logger.error(' + Domain {0} has invalid CNAME entry {1}'.format(challenge, cname))
-                logger.error(' + Use CNAME with _acme-challenge. at the beginning and valid top level domain at the end!')
-                sys.exit(1)
-    except dns.exception.DNSException as e:
-        logger.debug(' + Domain {0} has no CNAME entry'.format(challenge))
+                dns_response = dns.resolver.query(challenge, 'CNAME')
+            for rdata in dns_response:
+                cname = str(rdata)[:-1] if str(rdata).endswith('.') else str(rdata)
+                if get_tld('http://' + cname, fail_silently=True) != None:
+                    if cname.startswith('_acme-challenge.'):
+                        logger.debug(' + Domain {0} has valid CNAME entry {1}'.format(challenge, cname))
+                        return cname[16:]
+                    else:
+                        logger.debug(' + Domain {0} has invalid CNAME entry {1}'.format(challenge, cname))
+                        logger.debug(' + Need CNAME target with _acme-challenge. at the beginning!')
+                else:
+                    logger.debug(' + Domain {0} has invalid CNAME entry {1}'.format(challenge, cname))
+                    logger.debug(' + Need CNAME target with valid top level domain at the end!')
+        except dns.exception.DNSException as e:
+            logger.debug(' + Domain {0} has no CNAME entry'.format(challenge))
+            return domain
 
     return domain
 
@@ -115,7 +125,7 @@ def _has_dns_propagated(domain, token):
             dns_response = dns.resolver.query(challenge, 'TXT') 
         for rdata in dns_response:
             if token in [b.decode('utf-8') for b in rdata.strings]:
-                return True            
+                return True
     except dns.exception.DNSException as e:
         logger.debug(' + {0} - Retrying query...'.format(e))
         
