@@ -359,9 +359,9 @@ def create_all_txt_records(args):
         args[i] = _check_dns_cname(args[i])
     for i in range(0, len(args), X):
         create_txt_record(args[i:i+X], session)
-    # give it 10 seconds to settle down and avoid nxdomain caching
-    logger.info(" + Settling down for 10s...")
-    time.sleep(10)
+        # give it 5 seconds to assure zonefile is updated and avoid nxdomain caching
+        logger.info(" + Settling down for 5s...")
+        time.sleep(5)
     for i in range(0, len(args), X):
         while(_has_dns_propagated(args[i], args[i+2]) == False):
             logger.info(" + DNS not propagated, waiting 30s...")
@@ -379,9 +379,9 @@ def delete_all_txt_records(args):
         args[i] = _check_dns_cname(args[i])
     for i in range(0, len(args), X):
         delete_txt_record(args[i:i+X], session)
-        # give it 10 seconds to assure zonefile is updated
-        logger.info(" + Settling down for 10s...")
-        time.sleep(10)
+        # give it 5 seconds to assure zonefile is updated and avoid nxdomain caching
+        logger.info(" + Settling down for 5s...")
+        time.sleep(5)
     if _logout(session):
         logger.info(' + Hetzner Robot hook finished: clean_challenge')
     else:
