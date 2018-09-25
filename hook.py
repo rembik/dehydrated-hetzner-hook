@@ -68,63 +68,70 @@ else:
     logger.setLevel(logging.INFO)
 
 
-def _check_dns_cname(domain):
-    dns_servers = []
-    domain_parts = get_tld('http://' + domain, as_object=True)
-    challenges = domain_parts.subdomain.split(".") if domain_parts.subdomain != None else []
-    challenges = challenges.append(domain_parts.fld)
-    for i in xrange(0, len(challenges)-1):
-       for j in xrange(i+1, len(challenges)):
-           challenges[i] = "{0}.{1}".format(challenges[i],challenges[j])
-    for challenge in challenges:
-        challenge = "{0}.{1}".format('_acme-challenge', challenge)
-        logger.debug(' + Checking domain {0} for valid CNAME entry'.format(challenge))
-        for dns_server in config['dns_servers']:
-            dns_servers.append(dns_server)
-        if not dns_servers:
-            dns_servers = False
-        try:
-            if dns_servers:
-                custom_resolver = dns.resolver.Resolver()
-                custom_resolver.nameservers = dns_servers
-                dns_response = custom_resolver.query(challenge, 'CNAME')
-            else:
-                dns_response = dns.resolver.query(challenge, 'CNAME')
-            for rdata in dns_response:
-                cname = str(rdata)[:-1] if str(rdata).endswith('.') else str(rdata)
-                if get_tld('http://' + cname, fail_silently=True) != None:
-                    if cname.startswith('_acme-challenge.'):
-                        logger.debug(' + Domain {0} has valid CNAME entry {1}'.format(challenge, cname))
-                        return cname[16:]
-                    else:
-                        logger.debug(' + Domain {0} has invalid CNAME entry {1}'.format(challenge, cname))
-                        logger.debug(' + Need CNAME target with _acme-challenge. at the beginning!')
-                else:
-                    logger.debug(' + Domain {0} has invalid CNAME entry {1}'.format(challenge, cname))
-                    logger.debug(' + Need CNAME target with valid top level domain at the end!')
-        except dns.exception.DNSException as e:
-            logger.debug(' + Domain {0} has no CNAME entry'.format(challenge))
-            return domain
+def _get_nameservers(fld):
+    nameservers = []
+    default_nameservers = ['8.8.8.8','8.8.4.4']
+    logger.debug(' + Checking domain {0} for NS entries'.format(fld))
+    try:
+        dns_resolver = dns.resolver.Resolver()
+        dns_resolver.nameservers = default_nameservers
+        dns_ns_response = dns_resolver.query(fld, 'NS')
+        for ns in dns_ns_response:
+            ns = str(ns)[:-1] if str(ns).endswith('.') else str(ns)
+            try:
+                dns_ns_ipv4_response = dns_resolver.query(ns, 'A')
+                for ns_ipv4 in dns_ns_ipv4_response:
+                    ns_ipv4 = str(ns_ipv4)
+                    logger.debug('   NS {0} => IPv4 {1}'.format(ns, ns_ipv4))
+                    nameservers.append(ns_ipv4)
+            except dns.exception.DNSException as e_ns_ipv4:
+                logger.debug(' + Could not resolve A entry for NS {0}'.format(ns))
+    except dns.exception.DNSException as e_ns:
+        logger.debug(' + Could not resolve NS entries for Domain {0}'.format(fld))
+    
+    return nameservers if nameservers else default_nameservers
 
-    return domain
+
+def _check_dns_cname(domain):
+    nameservers = _get_nameservers(get_tld('http://' + domain))
+    challenge = '_acme-challenge.{0}'.format(domain)
+    logger.debug(' + Checking domain {0} for valid CNAME entry'.format(challenge))
+    try:
+        dns_resolver = dns.resolver.Resolver()
+        dns_resolver.nameservers = nameservers
+        dns_cname_response = dns_resolver.query(challenge, 'CNAME')
+        for cname in dns_cname_response:
+            cname = str(cname)[:-1] if str(cname).endswith('.') else str(cname)
+            if get_tld('http://' + cname, fail_silently=True) != None:
+                if cname.startswith('_acme-challenge.'):
+                    logger.debug(' + Domain {0} has well-formed CNAME entry {1}'.format(challenge, cname))
+                else:
+                    logger.debug(' + Domain {0} has valid CNAME entry {1}'.format(challenge, cname))
+                    logger.debug(' + WARNING: Better use CNAME target with _acme-challenge. at the beginning!')
+                return [domain, cname.encode('UTF-8')]
+            else:
+                logger.error(' + Domain {0} has invalid CNAME entry {1}'.format(challenge, cname))
+                logger.error(' + Need CNAME target with valid top level domain at the end!')
+                sys.exit(1)
+    except dns.exception.DNSException as e:
+        logger.debug(' + Domain {0} has no CNAME entry'.format(challenge))
+
+    return [domain, False]
 
 
 def _has_dns_propagated(domain, token):
-    dns_servers = []
-    challenge = "{0}.{1}".format('_acme-challenge', domain)
-    for dns_server in config['dns_servers']:
-        dns_servers.append(dns_server)   
-    if not dns_servers:
-        dns_servers = False
+    if domain[1]:
+        nameservers = _get_nameservers(get_tld('http://' + domain[1]))
+        challenge = domain[1]
+    else:
+        nameservers = _get_nameservers(get_tld('http://' + domain[0]))
+        challenge = '_acme-challenge.{0}'.format(domain[0])
     try:
-        if dns_servers:
-            custom_resolver = dns.resolver.Resolver()
-            custom_resolver.nameservers = dns_servers
-            dns_response = custom_resolver.query(challenge, 'TXT')
-        else:
-            dns_response = dns.resolver.query(challenge, 'TXT') 
-        for rdata in dns_response:
-            if token in [b.decode('utf-8') for b in rdata.strings]:
+        dns_resolver = dns.resolver.Resolver()
+        dns_resolver.nameservers = nameservers
+        dns_txt_response = dns_resolver.query(challenge, 'TXT')
+        for txt in dns_txt_response:
+            if token in [b.decode('UTF-8') for b in txt.strings]:
                 return True
     except dns.exception.DNSException as e:
         logger.debug(' + {0} - Retrying query...'.format(e))
@@ -162,7 +169,7 @@ def _logout(session):
 
 def _get_zone_id(domain, session):
     logger.debug(' + Requesting list of zone IDs')
-    tld = get_tld('http://' + domain)
+    tld = get_tld('http://' + domain[1]) if domain[1] else get_tld('http://' + domain[0])
     # update zone IDs from config.json, if they are older then one day
     try:
         zone_id_updated = time.strptime(config['zone_ids_updated'], "%d-%m-%YT%H:%M:%S +0000")
@@ -235,14 +242,17 @@ def _get_zone_file(zone_id, session):
 
 
 def _edit_zone_file(zone_id, session, domain, token, edit_txt_record):
-    tld = get_tld('http://' + domain, as_object=True)
-    if not tld.subdomain:
-        name = '_acme-challenge'
+    if domain[1]:
+        tld = get_tld('http://' + domain[1], as_object=True)
+        name = '@' if not tld.subdomain else tld.subdomain
+        challenge = domain[1]
     else:
-        name = '{0}.{1}'.format('_acme-challenge', tld.subdomain)
-    logger.debug(' + Get zone {0} for TXT record _acme-challenge.{1} from Hetzner Robot'.format(tld, domain))    
+        tld = get_tld('http://' + domain[0], as_object=True)
+        name = '_acme-challenge' if not tld.subdomain else '{0}.{1}'.format('_acme-challenge', tld.subdomain)
+        challenge = '_acme-challenge.{0}'.format(domain[0])
+    logger.debug(' + Get zone {0} for TXT record {1} from Hetzner Robot'.format(tld, challenge))
     zone_file = _get_zone_file(zone_id, session)
-    logger.debug(' + Searching zone {0} for TXT record _acme-challenge.{1}'.format(tld, domain))
+    logger.debug(' + Searching zone {0} for TXT record {1}'.format(tld, challenge))
     file = os.path.join('{0}/zones'.format(base_dir), '{0}.txt'.format(tld))
     txt_record_regex = re.compile(name + r'\s+IN\s+TXT\s+"'+ token + '"')
     found_txt_record = False
@@ -257,7 +267,7 @@ def _edit_zone_file(zone_id, session, domain, token, edit_txt_record):
         if txt_record_regex.search(line):
             found_txt_record = True
             if edit_txt_record=='create':
-                logger.debug(' + TXT record for _acme-challenge.{0} with token {1} allready exists'.format(domain, token))
+                logger.debug(' + TXT record for {0} with token {1} allready exists'.format(challenge, token))
             elif edit_txt_record=='delete': 
                 logger.debug(' + Deleted TXT record: {0} IN TXT "{1}"'.format(name, token))
                 continue
@@ -265,13 +275,13 @@ def _edit_zone_file(zone_id, session, domain, token, edit_txt_record):
         f.write(line)
     if not found_txt_record:
         if edit_txt_record=='create':
-            logger.debug(' + Unable to locate TXT record for _acme-challenge.{0}'.format(domain))
+            logger.debug(' + Unable to locate TXT record for {0}'.format(challenge))
             txt_record = '{0} IN TXT "{1}"'.format(name, token)
             logger.debug(' + Created TXT record: {0}'.format(txt_record))
             zone_file[1] = zone_file[1] + txt_record
             f.write(txt_record)
         else:
-            logger.debug(' + TXT record for _acme-challenge.{0} with token {1} dont exists'.format(domain, token))
+            logger.debug(' + TXT record for {0} with token {1} dont exists'.format(challenge, token))
     f.truncate()
     f.close()
     logger.debug(' + Saved zonefile: {0}'.format(file))
@@ -292,33 +302,31 @@ def _update_zone_file(zone_id, session, zone_file):
 
 
 def create_txt_record(args, session):
-    domain = _check_dns_cname(args[0])
+    domain = args[0]
     token = args[2]
-    logger.debug(' + Challenge dns-01: _acme-challenge.{0} => {1} as TXT record'.format(domain, token))
+    challenge = domain[1] if domain[1] else '_acme-challenge.{0}'.format(domain[0])
+    logger.debug(' + Challenge dns-01: {0} => {1} as TXT record'.format(challenge, token))
     zone_id = _get_zone_id(domain, session)
     zone_file = _edit_zone_file(zone_id, session, domain, token, 'create')
     update_txt_record = _update_zone_file(zone_id, session, zone_file)
     if update_txt_record: 
-        logger.debug(' + Updated TXT record for _acme-challenge.{0} on Hetzner Robot'.format(domain))
+        logger.debug(' + Updated TXT record for {0} on Hetzner Robot'.format(challenge))
     else:
-        logger.error(' + Error during updating zone for _acme-challenge.{0} on Hetzner Robot!'.format(domain))
+        logger.error(' + Error during updating zone for {0} on Hetzner Robot!'.format(challenge))
         sys.exit(1)
 
 
 def delete_txt_record(args, session):
-    domain = _check_dns_cname(args[0])
+    domain = args[0]
     token = args[2]
-    if not domain:
-        logger.info(" + http_request() error in dehydrated?")
-        return
-
+    challenge = domain[1] if domain[1] else '_acme-challenge.{0}'.format(domain[0])
     zone_id = _get_zone_id(domain, session)
     zone_file = _edit_zone_file(zone_id, session, domain, token, 'delete')
     delete_txt_record = _update_zone_file(zone_id, session, zone_file)
     if delete_txt_record: 
-        logger.debug(' + Deleted TXT record for _acme-challenge.{0} on Hetzner Robot'.format(domain))
+        logger.debug(' + Deleted TXT record for {0} on Hetzner Robot'.format(challenge))
     else:
-        logger.error(' + Error during updating zone for _acme-challenge.{0} on Hetzner Robot!'.format(domain))
+        logger.error(' + Error during updating zone for {0} on Hetzner Robot!'.format(challenge))
         sys.exit(1)
 
 
@@ -344,13 +352,14 @@ def create_all_txt_records(args):
     session = _login(auth_username, auth_password)  
     X = 3
     for i in range(0, len(args), X):
+        args[i] = _check_dns_cname(args[i])
+    for i in range(0, len(args), X):
         create_txt_record(args[i:i+X], session)
     # give it 10 seconds to settle down and avoid nxdomain caching
     logger.info(" + Settling down for 10s...")
     time.sleep(10)
     for i in range(0, len(args), X):
-        domain, token = args[i], args[i+2]
-        while(_has_dns_propagated(domain, token) == False):
+        while(_has_dns_propagated(args[i], args[i+2]) == False):
             logger.info(" + DNS not propagated, waiting 30s...")
             time.sleep(30)
     if _logout(session):
@@ -362,6 +371,8 @@ def create_all_txt_records(args):
 def delete_all_txt_records(args):
     session = _login(auth_username, auth_password)
     X = 3
+    for i in range(0, len(args), X):
+        args[i] = _check_dns_cname(args[i])
     for i in range(0, len(args), X):
         delete_txt_record(args[i:i+X], session)
         # give it 10 seconds to assure zonefile is updated
