@@ -69,25 +69,29 @@ else:
 
 
 def _get_nameservers(fld):
+    logger.debug(' + Checking domain {0} for SOA/NS entries'.format(fld))
     nameservers = []
     default_nameservers = ['8.8.8.8','8.8.4.4']
-    logger.debug(' + Checking domain {0} for NS entries'.format(fld))
-    try:
-        dns_resolver = dns.resolver.Resolver()
-        dns_resolver.nameservers = default_nameservers
-        dns_ns_response = dns_resolver.query(fld, 'NS')
-        for ns in dns_ns_response:
-            ns = str(ns)[:-1] if str(ns).endswith('.') else str(ns)
-            try:
-                dns_ns_ipv4_response = dns_resolver.query(ns, 'A')
-                for ns_ipv4 in dns_ns_ipv4_response:
-                    ns_ipv4 = str(ns_ipv4)
-                    logger.debug('   NS {0} => IPv4 {1}'.format(ns, ns_ipv4))
-                    nameservers.append(ns_ipv4)
-            except dns.exception.DNSException as e_ns_ipv4:
-                logger.debug(' + Could not resolve A entry for NS {0}'.format(ns))
-    except dns.exception.DNSException as e_ns:
-        logger.debug(' + Could not resolve NS entries for Domain {0}'.format(fld))
+    dns_ns_rdatatypes = ['SOA','NS']
+    for dns_ns_rdatatype in dns_ns_rdatatypes:
+        try:
+            dns_resolver = dns.resolver.Resolver()
+            dns_resolver.nameservers = default_nameservers
+            dns_ns_response = dns_resolver.query(fld, dns_ns_rdatatype)
+            for ns in dns_ns_response:
+                ns = ns.mname if dns_ns_rdatatype == 'SOA' else ns.target
+                ns = str(ns)[:-1] if str(ns).endswith('.') else str(ns)
+                try:
+                    dns_ns_ipv4_response = dns_resolver.query(ns, 'A')
+                    for ns_ipv4 in dns_ns_ipv4_response:
+                        ns_ipv4 = str(ns_ipv4.address)
+                        logger.debug('   {0} {1} => IPv4 {2}'.format(dns_ns_rdatatype, ns, ns_ipv4))
+                        if ns_ipv4 not in nameservers:
+                            nameservers.append(ns_ipv4)
+                except dns.exception.DNSException as e_ns_ipv4:
+                    logger.debug(' + Could not resolve A entry for NS {0}'.format(ns))
+        except dns.exception.DNSException as e_ns:
+            logger.debug(' + Could not resolve {0} entries for Domain {1}'.format(dns_ns_rdatatype, fld))
     
     return nameservers if nameservers else default_nameservers
 
@@ -101,7 +105,7 @@ def _check_dns_cname(domain):
         dns_resolver.nameservers = nameservers
         dns_cname_response = dns_resolver.query(challenge, 'CNAME')
         for cname in dns_cname_response:
-            cname = str(cname)[:-1] if str(cname).endswith('.') else str(cname)
+            cname = str(cname.target)[:-1] if str(cname.target).endswith('.') else str(cname.target)
             if get_tld('http://' + cname, fail_silently=True) != None:
                 if cname.startswith('_acme-challenge.'):
                     logger.debug(' + Domain {0} has well-formed CNAME entry {1}'.format(challenge, cname))
@@ -248,7 +252,7 @@ def _edit_zone_file(zone_id, session, domain, token, edit_txt_record):
         challenge = domain[1]
     else:
         tld = get_tld('http://' + domain[0], as_object=True)
-        name = '_acme-challenge' if not tld.subdomain else '{0}.{1}'.format('_acme-challenge', tld.subdomain)
+        name = '_acme-challenge' if not tld.subdomain else '_acme-challenge.{0}'.format(tld.subdomain)
         challenge = '_acme-challenge.{0}'.format(domain[0])
     logger.debug(' + Get zone {0} for TXT record {1} from Hetzner Robot'.format(tld, challenge))
     zone_file = _get_zone_file(zone_id, session)
