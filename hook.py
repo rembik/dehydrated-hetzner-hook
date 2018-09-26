@@ -97,30 +97,46 @@ def _get_nameservers(fld):
 
 
 def _check_dns_cname(domain):
-    nameservers = _get_nameservers(get_tld('http://' + domain))
-    challenge = '_acme-challenge.{0}'.format(domain)
-    logger.debug(' + Checking domain {0} for valid CNAME entry'.format(challenge))
-    try:
-        dns_resolver = dns.resolver.Resolver()
-        dns_resolver.nameservers = nameservers
-        dns_cname_response = dns_resolver.query(challenge, 'CNAME')
-        for cname in dns_cname_response:
-            cname = str(cname.target)[:-1] if str(cname.target).endswith('.') else str(cname.target)
-            if get_tld('http://' + cname, fail_silently=True) != None:
-                if cname.startswith('_acme-challenge.'):
-                    logger.debug(' + Domain {0} has well-formed CNAME entry {1}'.format(challenge, cname))
+    domain_cname = [domain, False]
+    cname_concatenated = True
+    cname_concatenation = 0
+    cname_max_concatenations = 10
+    while(cname_concatenated == True):
+        if cname_concatenation >= cname_max_concatenations:
+            logger.error(' + Domain _acme-challenge.{0} has more than {1} concatenated CNAME entries'.format(domain_cname[0], cname_max_concatenations))
+            logger.error(' + ERROR: Reduce the amount of CNAME concatenations!')
+            sys.exit(1)
+        if domain_cname[1]:
+            nameservers = _get_nameservers(get_tld('http://' + domain_cname[1]))
+            challenge = domain_cname[1]
+        else:
+            nameservers = _get_nameservers(get_tld('http://' + domain_cname[0]))
+            challenge = '_acme-challenge.{0}'.format(domain_cname[0])
+        logger.debug(' + Checking domain {0} for CNAME entry'.format(challenge))
+        try:
+            dns_resolver = dns.resolver.Resolver()
+            dns_resolver.nameservers = nameservers
+            dns_cname_response = dns_resolver.query(challenge, 'CNAME')
+            for cname in dns_cname_response:
+                cname = str(cname.target)[:-1] if str(cname.target).endswith('.') else str(cname.target)
+                cname_concatenation += 1
+                if get_tld('http://' + cname, fail_silently=True) != None:
+                    if cname.startswith('_acme-challenge.'):
+                        logger.debug('   CNAME {0} => {1} (well-formed)'.format(challenge, cname))
+                    else:
+                        logger.debug('   CNAME {0} => {1} (valid)'.format(challenge, cname))
+                    domain_cname = [domain, cname.encode('UTF-8')]
                 else:
-                    logger.debug(' + Domain {0} has valid CNAME entry {1}'.format(challenge, cname))
-                    logger.debug(' + WARNING: Better use CNAME target with _acme-challenge. at the beginning!')
-                return [domain, cname.encode('UTF-8')]
-            else:
-                logger.error(' + Domain {0} has invalid CNAME entry {1}'.format(challenge, cname))
-                logger.error(' + Need CNAME target with valid top level domain at the end!')
-                sys.exit(1)
-    except dns.exception.DNSException as e:
-        logger.debug(' + Domain {0} has no CNAME entry'.format(challenge))
+                    logger.error('   CNAME {0} => {1} (invalid)'.format(challenge, cname))
+                    logger.error(' + ERROR: Need CNAME target with valid top level domain at the end!')
+                    sys.exit(1)
+        except dns.exception.DNSException as e:
+            logger.debug('   CNAME {0} => False'.format(challenge))
+            if cname_concatenation > 0:
+                logger.debug('   CNAME _acme-challenge.{0} => {1}'.format(domain_cname[0], domain_cname[1]))
+            cname_concatenated = False
 
-    return [domain, False]
+    return domain_cname
 
 
 def _has_dns_propagated(domain, token):
