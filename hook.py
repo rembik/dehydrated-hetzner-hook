@@ -293,7 +293,7 @@ def _edit_zone_file(zone_id, session, domain, token, edit_txt_record):
     if not found_txt_record:
         if edit_txt_record=='create':
             logger.debug(' + Unable to locate TXT record for {0}'.format(challenge))
-            txt_record = '{0} IN TXT "{1}"'.format(name, token)
+            txt_record = '{0} IN TXT "{1}"\n'.format(name, token)
             logger.debug(' + Created TXT record: {0}'.format(txt_record))
             zone_file[1] = zone_file[1] + txt_record
             f.write(txt_record)
