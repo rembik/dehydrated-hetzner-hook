@@ -69,7 +69,6 @@ else:
 
 
 def _get_nameservers(fld):
-    logger.debug(' + Checking domain {0} for SOA/NS entries'.format(fld))
     nameservers = []
     default_nameservers = ['8.8.8.8','8.8.4.4']
     dns_ns_rdatatypes = ['SOA','NS']
@@ -85,19 +84,22 @@ def _get_nameservers(fld):
                     dns_ns_ipv4_response = dns_resolver.query(ns, 'A')
                     for ns_ipv4 in dns_ns_ipv4_response:
                         ns_ipv4 = str(ns_ipv4.address)
-                        logger.debug('   {0} {1} => IPv4 {2}'.format(dns_ns_rdatatype, ns, ns_ipv4))
+                        #logger.debug('   {0} {1} => IPv4 {2}'.format(dns_ns_rdatatype, ns, ns_ipv4))
                         if ns_ipv4 not in nameservers:
                             nameservers.append(ns_ipv4)
                 except dns.exception.DNSException as e_ns_ipv4:
-                    logger.debug(' + Could not resolve A entry for NS {0}'.format(ns))
+                    logger.debug('   A {0} => {1}'.format(ns, e_ns_ipv4))
         except dns.exception.DNSException as e_ns:
-            logger.debug(' + Could not resolve {0} entries for Domain {1}'.format(dns_ns_rdatatype, fld))
-    
-    return nameservers if nameservers else default_nameservers
+            logger.debug('   {0} {1} => {2}'.format(dns_ns_rdatatype, fld, e_ns))
+    nameservers = nameservers if nameservers else default_nameservers
+    logger.debug('   DNS {0} => IPv4 {1}'.format(fld, nameservers))
+
+    return nameservers
 
 
 def _check_dns_cname(domain):
     domain_cname = [domain, False]
+    logger.debug(' + Checking domain _acme-challenge.{0} for CNAME entry'.format(domain_cname[0]))
     cname_concatenated = True
     cname_concatenation = 0
     cname_max_concatenations = 10
@@ -106,13 +108,9 @@ def _check_dns_cname(domain):
             logger.error(' + Domain _acme-challenge.{0} has more than {1} concatenated CNAME entries'.format(domain_cname[0], cname_max_concatenations))
             logger.error(' + ERROR: Reduce the amount of CNAME concatenations!')
             sys.exit(1)
-        if domain_cname[1]:
-            nameservers = _get_nameservers(get_tld('http://' + domain_cname[1]))
-            challenge = domain_cname[1]
-        else:
-            nameservers = _get_nameservers(get_tld('http://' + domain_cname[0]))
-            challenge = '_acme-challenge.{0}'.format(domain_cname[0])
-        logger.debug(' + Checking domain {0} for CNAME entry'.format(challenge))
+        challenge = domain[1] if domain[1] else '_acme-challenge.{0}'.format(domain[0])
+        fld = get_tld('http://' + domain[1]) if domain[1] else get_tld('http://' + domain[0])
+        nameservers = _get_nameservers(fld)
         try:
             dns_resolver = dns.resolver.Resolver()
             dns_resolver.nameservers = nameservers
@@ -120,32 +118,27 @@ def _check_dns_cname(domain):
             for cname in dns_cname_response:
                 cname = str(cname.target)[:-1] if str(cname.target).endswith('.') else str(cname.target)
                 cname_concatenation += 1
+                logger.error('   CNAME {0} => {1}'.format(challenge, cname))
                 if get_tld('http://' + cname, fail_silently=True) != None:
-                    if cname.startswith('_acme-challenge.'):
-                        logger.debug('   CNAME {0} => {1} (well-formed)'.format(challenge, cname))
-                    else:
-                        logger.debug('   CNAME {0} => {1} (valid)'.format(challenge, cname))
+                    logger.debug('   CNAME {0} => {1}'.format(challenge, cname))
                     domain_cname = [domain, cname.encode('UTF-8')]
                 else:
-                    logger.error('   CNAME {0} => {1} (invalid)'.format(challenge, cname))
+                    logger.error('   CNAME {0} => {1}'.format(challenge, cname))
                     logger.error(' + ERROR: Need CNAME target with valid top level domain at the end!')
                     sys.exit(1)
         except dns.exception.DNSException as e:
-            logger.debug('   CNAME {0} => False'.format(challenge))
-            if cname_concatenation > 0:
-                logger.debug('   CNAME _acme-challenge.{0} => {1}'.format(domain_cname[0], domain_cname[1]))
+            logger.debug('   CNAME {0} => {1}'.format(challenge, e))
             cname_concatenated = False
+    logger.debug(' + CNAME _acme-challenge.{0} => {1}'.format(domain_cname[0], domain_cname[1]))
 
     return domain_cname
 
 
 def _has_dns_propagated(domain, token):
-    if domain[1]:
-        nameservers = _get_nameservers(get_tld('http://' + domain[1]))
-        challenge = domain[1]
-    else:
-        nameservers = _get_nameservers(get_tld('http://' + domain[0]))
-        challenge = '_acme-challenge.{0}'.format(domain[0])
+    challenge = domain[1] if domain[1] else '_acme-challenge.{0}'.format(domain[0])
+    logger.debug(' + Checking domain {0} for TXT entry {1}'.format(challenge, token))
+    fld = get_tld('http://' + domain[1]) if domain[1] else get_tld('http://' + domain[0])
+    nameservers = _get_nameservers(fld)
     try:
         dns_resolver = dns.resolver.Resolver()
         dns_resolver.nameservers = nameservers
@@ -154,7 +147,7 @@ def _has_dns_propagated(domain, token):
             if token in [b.decode('UTF-8') for b in txt.strings]:
                 return True
     except dns.exception.DNSException as e:
-        logger.debug(' + {0} - Retrying query...'.format(e))
+        logger.debug('   TXT {0} => {1}'.format(challenge, e))
         
     return False
 
@@ -375,9 +368,9 @@ def create_all_txt_records(args):
         args[i] = _check_dns_cname(args[i])
     for i in range(0, len(args), X):
         create_txt_record(args[i:i+X], session)
-        # give it 5 seconds to assure zonefile is updated and avoid nxdomain caching
-        logger.info(" + Settling down for 5s...")
-        time.sleep(5)
+        # give it 10 seconds to assure zonefile is updated and avoid nxdomain caching
+        logger.info(" + Settling down for 10s...")
+        time.sleep(10)
     for i in range(0, len(args), X):
         while(_has_dns_propagated(args[i], args[i+2]) == False):
             logger.info(" + DNS not propagated, waiting 30s...")
@@ -395,9 +388,9 @@ def delete_all_txt_records(args):
         args[i] = _check_dns_cname(args[i])
     for i in range(0, len(args), X):
         delete_txt_record(args[i:i+X], session)
-        # give it 5 seconds to assure zonefile is updated and avoid nxdomain caching
-        logger.info(" + Settling down for 5s...")
-        time.sleep(5)
+        # give it 10 seconds to assure zonefile is updated and avoid nxdomain caching
+        logger.info(" + Settling down for 10s...")
+        time.sleep(10)
     if _logout(session):
         logger.info(' + Hetzner Robot hook finished: clean_challenge')
     else:
