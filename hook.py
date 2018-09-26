@@ -108,8 +108,8 @@ def _check_dns_cname(domain):
             logger.error(' + Domain _acme-challenge.{0} has more than {1} concatenated CNAME entries'.format(domain_cname[0], cname_max_concatenations))
             logger.error(' + ERROR: Reduce the amount of CNAME concatenations!')
             sys.exit(1)
-        challenge = domain[1] if domain[1] else '_acme-challenge.{0}'.format(domain[0])
-        fld = get_tld('http://' + domain[1]) if domain[1] else get_tld('http://' + domain[0])
+        challenge = domain_cname[1] if domain_cname[1] else '_acme-challenge.{0}'.format(domain_cname[0])
+        fld = get_tld('http://' + domain_cname[1]) if domain_cname[1] else get_tld('http://' + domain_cname[0])
         nameservers = _get_nameservers(fld)
         try:
             dns_resolver = dns.resolver.Resolver()
