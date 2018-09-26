@@ -118,7 +118,6 @@ def _check_dns_cname(domain):
             for cname in dns_cname_response:
                 cname = str(cname.target)[:-1] if str(cname.target).endswith('.') else str(cname.target)
                 cname_concatenation += 1
-                logger.error('   CNAME {0} => {1}'.format(challenge, cname))
                 if get_tld('http://' + cname, fail_silently=True) != None:
                     logger.debug('   CNAME {0} => {1}'.format(challenge, cname))
                     domain_cname = [domain, cname.encode('UTF-8')]
@@ -269,9 +268,14 @@ def _edit_zone_file(zone_id, session, domain, token, edit_txt_record):
     file = os.path.join('{0}/zones'.format(base_dir), '{0}.txt'.format(tld))
     txt_record_regex = re.compile(name + r'\s+IN\s+TXT\s+"'+ token + '"')
     found_txt_record = False
-    f = open(file,'w')
-    f.write(zone_file[1])
-    f.close()
+    try:
+        file_mod_time = int(os.path.getmtime(file))
+    except OSError as e:
+        file_mod_time = int(0)
+    if (int(time.time()) - file_mod_time) > 30:
+        f = open(file,'w')
+        f.write(zone_file[1])
+        f.close()
     f = open(file,'r+')
     lines = f.readlines()
     zone_file[1] = ''
@@ -369,11 +373,11 @@ def create_all_txt_records(args):
     for i in range(0, len(args), X):
         create_txt_record(args[i:i+X], session)
         # give it 10 seconds to assure zonefile is updated and avoid nxdomain caching
-        logger.info(" + Settling down for 10s...")
-        time.sleep(10)
+        #logger.info(" + Settling down for 10s...")
+        #time.sleep(10)
     for i in range(0, len(args), X):
         while(_has_dns_propagated(args[i], args[i+2]) == False):
-            logger.info(" + DNS not propagated, waiting 30s...")
+            logger.info(" + DNS not propagated, retry query after 30s...")
             time.sleep(30)
     if _logout(session):
         logger.info(' + Hetzner Robot hook finished: deploy_challenge')
@@ -389,8 +393,8 @@ def delete_all_txt_records(args):
     for i in range(0, len(args), X):
         delete_txt_record(args[i:i+X], session)
         # give it 10 seconds to assure zonefile is updated and avoid nxdomain caching
-        logger.info(" + Settling down for 10s...")
-        time.sleep(10)
+        #logger.info(" + Settling down for 10s...")
+        #time.sleep(10)
     if _logout(session):
         logger.info(' + Hetzner Robot hook finished: clean_challenge')
     else:
