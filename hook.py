@@ -79,7 +79,7 @@ def _get_nameservers(fld):
             dns_ns_response = dns_resolver.query(fld, dns_ns_rdatatype)
             for ns in dns_ns_response:
                 ns = ns.mname if dns_ns_rdatatype == 'SOA' else ns.target
-                ns = str(ns)[:-1] if str(ns).endswith('.') else str(ns)
+                ns = str(ns)[:-1] if str(ns)[-1] == '.' else str(ns)
                 try:
                     dns_ns_ipv4_response = dns_resolver.query(ns, 'A')
                     for ns_ipv4 in dns_ns_ipv4_response:
@@ -116,11 +116,11 @@ def _check_dns_cname(domain):
             dns_resolver.nameservers = nameservers
             dns_cname_response = dns_resolver.query(challenge, 'CNAME')
             for cname in dns_cname_response:
-                cname = str(cname.target)[:-1] if str(cname.target).endswith('.') else str(cname.target)
+                cname = str(cname.target)[:-1] if str(cname.target)[-1] == '.' else str(cname.target)
                 cname_concatenation += 1
                 if get_tld('http://' + cname, fail_silently=True) != None:
                     logger.debug('   CNAME {0} => {1}'.format(challenge, cname))
-                    domain_cname = [domain, cname.encode('UTF-8')]
+                    domain_cname = [domain, cname]
                 else:
                     logger.error('   CNAME {0} => {1}'.format(challenge, cname))
                     logger.error(' + ERROR: Need CNAME target with valid top level domain at the end!')
@@ -294,7 +294,7 @@ def _edit_zone_file(zone_id, session, domain, token, edit_txt_record):
         if edit_txt_record=='create':
             logger.debug(' + Unable to locate TXT record for {0}'.format(challenge))
             txt_record = '{0} IN TXT "{1}"\n'.format(name, token)
-            logger.debug(' + Created TXT record: {0}'.format(txt_record))
+            logger.debug(' + Created TXT record: {0} IN TXT "{1}"'.format(name, token))
             zone_file[1] = zone_file[1] + txt_record
             f.write(txt_record)
         else:
@@ -307,7 +307,7 @@ def _edit_zone_file(zone_id, session, domain, token, edit_txt_record):
     
 
 def _update_zone_file(zone_id, session, zone_file):
-    logger.debug(' + Updating zone on Hetzner Robot:\n   id: {0}\n   _csrf_token: {1}\n   zonefile:\n\n{2}\n'.format(zone_id, zone_file[0], zone_file[1]))
+    logger.debug(' + Updating zone on Hetzner Robot:\n   id: {0}\n   _csrf_token: {1}\n   zonefile:\n\n{2}'.format(zone_id, zone_file[0], zone_file[1]))
     update_url = '{0}/dns/update'.format(base_url)
     r = session.post(
         update_url, 
