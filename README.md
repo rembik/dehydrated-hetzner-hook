@@ -66,21 +66,12 @@ Because of the ugly response status codes when requesting Hetzner Robot you also
 }
 ```
 
-*Optionally,* but **highly recommended**: Customize your default Hetzner Nameservers (see your DNS `zone` files) in `default.json` to be used for propagation checking (credits to [bennettp123](https://github.com/bennettp123)):
-```
-{
-    "dns_servers": [
-        "213.239.242.238",
-        "213.133.105.6",
-        "193.47.99.3"
-    ],
-    ...
-}
-```
-
 *Optionally,* if you want more information about what is going on while the hook is running:
 ```
-"debug": true
+{
+    ...
+    "debug": true
+}
 ```
 
 ## Usage
@@ -124,8 +115,8 @@ Processing example.com
  + Hetzner Robot hook executing: exit_hook
 ```
 
-For `CNAME dns-01 challenge support` add a CNAME entry from the requested domain to the Hetzner domain that should accomplish the dns challenge.
-The CNAME for dns-01 challenging `sub.example.org` with `example.com` should look similar to this _(Note: The CNAME entry must be added  to the domain `example.org`, not to `example.com`!)_: 
+**Optional**: For `CNAME dns-01 challenge support` add a CNAME entry from the requested domain to the Hetzner domain that should accomplish the dns challenge.
+The CNAME for dns-01 challenging `sub.example.org` with `example.com` should look similar to the following and must be added to the domain `example.org`: 
 ```
 _acme-challenge.sub    IN CNAME   _acme-challenge.example.com.
 ```
