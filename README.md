@@ -60,7 +60,7 @@ requested domain to the Hetzner domain that should accomplish the dns challenge.
 The CNAME for dns-01 challenging `example.net` with `example.org` could look 
 similar to the following and must be added to the domain `example.net`: 
 ```
-_acme-challenge    IN CNAME   localhost.example.com.
+_acme-challenge    IN CNAME   localhost.example.org.
 ```
 
 ## Usage
