@@ -31,7 +31,7 @@ pip install -r dehydrated-hetzner-hook/requirements.txt
 
 ## Configuration
 Edit the `/etc/dehydrated/config` file, add/uncomment the following lines:
-```shell
+```
 BASEDIR="/etc/dehydrated"
 CHALLENGETYPE="dns-01"
 HOOK="${BASEDIR}/hooks/hetzner/hook.py"
@@ -53,7 +53,7 @@ export HETZNER_AUTH_PASSWORD='<password>'
 ```
 *Optional*, in environments with more than one DNS provider and/or account for `dns-01` challenging, specify authentication parameters on execution: 
 ```shell
-$ HETZNER_AUTH_ACCOUNT='robot' HETZNER_AUTH_USERNAME='<username>' HETZNER_AUTH_PASSWORD='<password>' dehydrated -c -d 'example.org example.net *.example.org' -t 'dns-01' -k '/etc/dehydrated/hooks/hetzner/hook.py'
+HETZNER_AUTH_ACCOUNT='robot' HETZNER_AUTH_USERNAME='<username>' HETZNER_AUTH_PASSWORD='<password>' dehydrated -c -d 'example.org example.net *.example.org' -t 'dns-01' -k '/etc/dehydrated/hooks/hetzner/hook.py'
 ```
 *Optional*, for `CNAME dns-01` challenges add a CNAME entry from the 
 requested domain to the Hetzner domain that should accomplish the dns challenge. 
@@ -70,7 +70,7 @@ example.org example.net *.example.org
 ```
 
 will look similar to the following on execution:
-```shell
+```
 dehydrated -c
  + Checking domain name(s) of existing cert... unchanged.
  + Checking expire date of existing cert...
