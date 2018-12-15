@@ -1,6 +1,6 @@
-# Hetzner Robot hook for `dehydrated`
+# Hetzner hook for `dehydrated`
 
-This is a hook for the [Let's Encrypt](https://letsencrypt.org/) ACME client [dehydrated](https://github.com/lukas2511/dehydrated) (previously known as `letsencrypt.sh`) that allows you to use [Hetzner Robot](https://www.hetzner.de/us/hosting/domain/registrationrobot) or [Hetzner konsoleH]() DNS to respond to `dns-01` challenges. Requires Python and Hetzner account credentials (specifed as environment variables).
+This is a hook for the [Let's Encrypt](https://letsencrypt.org/) ACME client [dehydrated](https://github.com/lukas2511/dehydrated) (previously known as `letsencrypt.sh`) that allows you to use [Hetzner Robot](https://www.hetzner.com/registrationrobot) or [Hetzner konsoleH](https://www.hetzner.com/domainregistration) DNS to respond to `dns-01` challenges. Requires Python and Hetzner account credentials (specifed as environment variables).
 
 ## Precondition
 ```shell
