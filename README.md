@@ -1,10 +1,10 @@
 # Hetzner Robot hook for `dehydrated`
 
-This is a hook for the [Let's Encrypt](https://letsencrypt.org/) ACME client [dehydrated](https://github.com/lukas2511/dehydrated) (previously known as `letsencrypt.sh`) that allows you to use [Hetzner](https://www.hetzner.de/us/hosting/domain/registrationrobot) DNS records to respond to `dns-01` challenges (credits to [kappataumu](https://github.com/kappataumu/letsencrypt-cloudflare-hook)). Requires Python and your Hetzner Robot account (username and password) being set as environment variables.
+This is a hook for the [Let's Encrypt](https://letsencrypt.org/) ACME client [dehydrated](https://github.com/lukas2511/dehydrated) (previously known as `letsencrypt.sh`) that allows you to use [Hetzner Robot](https://www.hetzner.de/us/hosting/domain/registrationrobot) or [Hetzner konsoleH]() DNS to respond to `dns-01` challenges. Requires Python and Hetzner account credentials (specifed as environment variables).
 
 ## Precondition
-```
-$ sudo su
+```shell
+sudo su
 mkdir /etc/dehydrated
 cd /etc/dehydrated
 mkdir certs accounts hooks
@@ -18,110 +18,163 @@ ln -s /opt/dehydrated/dehydrated /usr/local/bin/
 
 ## Installation
 
-```
-$ sudo su
+```shell
+sudo su
 cd /opt/
 git clone https://github.com/rembik/dehydrated-hetzner-hook.git
 ln -s /opt/dehydrated-hetzner-hook/ /etc/dehydrated/hooks/hetzner
 ```
-If you are using the recommended Python 3:
-```
-$ sudo su
-apt-get install python3 python3-pip
-pip3 install -r dehydrated-hetzner-hook/requirements.txt
-```
-and dehydrated-hetzner-hook/hook.py change the top line to point at `python3`:
-```
-#!/usr/bin/env python3
-```
-Otherwise, if you are using Python 2 (make sure to also check the [urllib3 documentation](http://urllib3.readthedocs.org/en/latest/security.html#installing-urllib3-with-sni-support-and-certificates) for possible caveats):
-```
-$ sudo su
-apt-get install python python-dev python-pip
-pip install -r dehydrated-hetzner-hook/requirements-python-2.txt
+Assuming `python` and ` pip` already exists on the system, install the necessary packages and make sure the first line (`#!/usr/bin/env python`) in `hook.py` points to the provided Python interpreter:
+```shell
+pip install -r dehydrated-hetzner-hook/requirements.txt
 ```
 
 ## Configuration
 Edit the `/etc/dehydrated/config` file, add/uncomment the following lines:
-```
+```shell
 BASEDIR="/etc/dehydrated"
 CHALLENGETYPE="dns-01"
-CERTDIR="${BASEDIR}/certs"
-ACCOUNTDIR="${BASEDIR}/accounts"
 HOOK="${BASEDIR}/hooks/hetzner/hook.py"
-CONTACT_EMAIL="youremail@example.com"
+HOOK_CHAIN="yes"
+CONTACT_EMAIL="admin@example.com"
 ```
-Your account's Hetzner Robot username and password are expected to be environment variables. As defaults add these lines to the `/etc/dehydrated/config` file:
+Specify Hetzner account, username and password as environment variables. 
+As defaults add these lines to the `/etc/dehydrated/config` file:
 ```
-export HETZNER_USERNAME='your-hetzner-user'
-export HETZNER_PASSWORD='your-hetzner-password'
+# Hetzner account: by default Hetzner Robot (robot) or Hetzner konsoleH (konsoleh)
+#export HETZNER_AUTH_ACCOUNT='robot'
+export HETZNER_AUTH_USERNAME='<username>'
+export HETZNER_AUTH_PASSWORD='<password>'
 ```
-The hook script is looking for a config file `accounts/${HETZNER_USERNAME}.json` and a directory `zones` in the `${BASEDIR}/hooks/hetzner` directory. If no config file for your account exists, the script will create one with the variables from [`accounts/default.json`](https://github.com/rembik/dehydrated-hetzner-hook/blob/master/accounts/default.json).
-
-Because of the ugly response status codes when requesting Hetzner Robot you also need to specify your Hetzner Robot interface language [english - en | deutsch - de]. So **make sure to set** your default language in `default.json`:
+*Optional*, specify Hetzner log level as environment variable.
 ```
-{
-    "language": "de",
-    ...
-}
+# Hetzner log level: by default INFO (choose from CRITICAL, ERROR, WARNING, INFO, DEBUG or NOTSET)
+#export HETZNER_LOG_LEVEL=INFO
 ```
-
-*Optionally,* if you want more information about what is going on while the hook is running:
+*Optional*, in environments with more than one DNS provider and/or account for `dns-01` challenging, specify authentication parameters on execution: 
+```shell
+$ HETZNER_AUTH_ACCOUNT='robot' HETZNER_AUTH_USERNAME='<username>' HETZNER_AUTH_PASSWORD='<password>' dehydrated -c -d 'example.org example.net *.example.org' -t 'dns-01' -k '/etc/dehydrated/hooks/hetzner/hook.py'
 ```
-{
-    ...
-    "debug": true
-}
+*Optional*, for `CNAME dns-01` challenges add a CNAME entry from the 
+requested domain to the Hetzner domain that should accomplish the dns challenge. 
+The CNAME for dns-01 challenging `example.net` with `example.org` could look 
+similar to the following and must be added to the domain `example.net`: 
+```
+_acme-challenge    IN CNAME   localhost.example.com.
 ```
 
 ## Usage
-Edit the `/etc/dehydrated/domains.txt` file, add something like this:
+For example specified `/etc/dehydrated/domains.txt`
 ```
-example.com
-example.org www.example.org dev.example.org
+example.org example.net *.example.org
 ```
 
-```
-$ dehydrated -c
- + Hetzner Robot hook executing: startup_hook
-Processing example.com
+will look similar to the following on execution:
+```shell
+dehydrated -c
+ + Checking domain name(s) of existing cert... unchanged.
+ + Checking expire date of existing cert...
+ + Valid till Jan 01 00:00:00 2019 GMT (Less than 30 days).
  + Signing domains...
  + Generating private key...
  + Generating signing request...
- + Requesting challenge for example.com...
- + Hetzner Robot hook executing: deploy_challenge
- + Settling down for 10s...
- + None of DNS query names exist: _acme-challenge.example.com., _acme-challenge.example.com. - Retrying query...
- + DNS not propagated, waiting 30s...
- + None of DNS query names exist: _acme-challenge.example.com., _acme-challenge.example.com. - Retrying query...
- + DNS not propagated, waiting 30s...
- + None of DNS query names exist: _acme-challenge.example.com., _acme-challenge.example.com. - Retrying query...
- + DNS not propagated, waiting 30s...
- + None of DNS query names exist: _acme-challenge.example.com., _acme-challenge.example.com. - Retrying query...
- + DNS not propagated, waiting 30s...
- + Hetzner Robot hook finished: deploy_challenge
- + Responding to challenge for example.com...
- + Hetzner Robot hook executing: clean_challenge
- + Hetzner Robot hook finished: clean_challenge
+ + Requesting new certificate order from CA...
+ + Received 3 authorizations URLs from the CA
+ + Handling authorization for example.org
+ + Handling authorization for example.net
+ + Handling authorization for example.org
+ + 3 pending challenge(s)
+ + Deploying challenge tokens...
+ + Hetzner hook executing deploy_challenge...
+Hetzner => Enable CNAME lookup (see --linked parameter)
+Hetzner => Authenticate session with robot account 'aranoxgbr'
+Hetzner => Get ID 123456 for domain example.org
+Hetzner => Exit session
+Hetzner => Enable CNAME lookup (see --linked parameter)
+Hetzner => Authenticate session with robot account 'aranoxgbr'
+Hetzner => Get zone for domain example.org
+Hetzner => Update zone for domain example.org
+Hetzner => Wait 30s until Hetzner Robot has taken over zone...
+Hetzner => Exit session
+Hetzner => Enable CNAME lookup (see --linked parameter)
+Hetzner => Record _acme-challenge.example.net. has CNAME localhost.example.org.
+Hetzner => Authenticate session with robot account 'aranoxgbr'
+Hetzner => Get ID 123456 for domain example.org
+Hetzner => Exit session
+Hetzner => Enable CNAME lookup (see --linked parameter)
+Hetzner => Record _acme-challenge.example.net. has CNAME localhost.example.org.
+Hetzner => Authenticate session with robot account 'aranoxgbr'
+Hetzner => Get ID 123456 for domain example.org
+Hetzner => Get zone for domain example.org
+Hetzner => Update zone for domain example.org
+Hetzner => Wait 30s until Hetzner Robot has taken over zone...
+Hetzner => Exit session
+Hetzner => Enable CNAME lookup (see --linked parameter)
+Hetzner => Authenticate session with robot account 'aranoxgbr'
+Hetzner => Get ID 123456 for domain example.org
+Hetzner => Exit session
+Hetzner => Enable CNAME lookup (see --linked parameter)
+Hetzner => Authenticate session with robot account 'aranoxgbr'
+Hetzner => Get zone for domain example.org
+Hetzner => Update zone for domain example.org
+Hetzner => Wait 30s until Hetzner Robot has taken over zone...
+Hetzner => Record is not propagated, retry (2/20) in 30s...
+Hetzner => Record is not propagated, retry (3/20) in 30s...
+Hetzner => Record is not propagated, retry (4/20) in 30s...
+Hetzner => Record is not propagated, retry (5/20) in 30s...
+Hetzner => Record is not propagated, retry (6/20) in 30s...
+Hetzner => Record is not propagated, retry (7/20) in 30s...
+Hetzner => Record is not propagated, retry (8/20) in 30s...
+Hetzner => Record is not propagated, retry (9/20) in 30s...
+Hetzner => Record is not propagated, retry (10/20) in 30s...
+Hetzner => Record _acme-challenge.example.org. has TXT "vo0zrBpj3rKiAb75mlaVSUeiFlZUe2-q2nNe_RQpn2Q"
+Hetzner => Exit session
+ + Responding to challenge for example.org authorization...
  + Challenge is valid!
+ + Responding to challenge for example.net authorization...
+ + Challenge is valid!
+ + Responding to challenge for example.org authorization...
+ + Challenge is valid!
+ + Cleaning challenge tokens...
+ + Hetzner hook executing clean_challenge...
+Hetzner => Enable CNAME lookup (see --linked parameter)
+Hetzner => Authenticate session with robot account 'aranoxgbr'
+Hetzner => Get ID 123456 for domain example.org
+Hetzner => Exit session
+Hetzner => Enable CNAME lookup (see --linked parameter)
+Hetzner => Authenticate session with robot account 'aranoxgbr'
+Hetzner => Get zone for domain example.org
+Hetzner => Update zone for domain example.org
+Hetzner => Wait 30s until Hetzner Robot has taken over zone...
+Hetzner => Exit session
+Hetzner => Enable CNAME lookup (see --linked parameter)
+Hetzner => Record _acme-challenge.example.net. has CNAME localhost.example.org.
+Hetzner => Authenticate session with robot account 'aranoxgbr'
+Hetzner => Get ID 123456 for domain example.org
+Hetzner => Exit session
+Hetzner => Enable CNAME lookup (see --linked parameter)
+Hetzner => Record _acme-challenge.example.net. has CNAME localhost.example.org.
+Hetzner => Authenticate session with robot account 'aranoxgbr'
+Hetzner => Get ID 123456 for domain example.org
+Hetzner => Get zone for domain example.org
+Hetzner => Update zone for domain example.org
+Hetzner => Wait 30s until Hetzner Robot has taken over zone...
+Hetzner => Exit session
+Hetzner => Enable CNAME lookup (see --linked parameter)
+Hetzner => Authenticate session with robot account 'aranoxgbr'
+Hetzner => Get ID 123456 for domain example.org
+Hetzner => Exit session
+Hetzner => Enable CNAME lookup (see --linked parameter)
+Hetzner => Authenticate session with robot account 'aranoxgbr'
+Hetzner => Get zone for domain example.org
+Hetzner => Update zone for domain example.org
+Hetzner => Wait 30s until Hetzner Robot has taken over zone...
+Hetzner => Exit session
  + Requesting certificate...
  + Checking certificate...
  + Done!
  + Creating fullchain.pem...
- + Hetzner Robot hook executing: deploy_cert
- + ssl_certificate: /home/user/dehydrated/certs/example.com/fullchain.pem
- + ssl_certificate_key: /home/user/dehydrated/certs/example.com/privkey.pem
+ + Hetzner hook executing deploy_cert...
  + Done!
- + Hetzner Robot hook executing: exit_hook
-```
-
-**Optional**: For `CNAME dns-01 challenge support` add a CNAME entry from the requested domain to the Hetzner domain that should accomplish the dns challenge.
-The CNAME for dns-01 challenging `sub.example.org` with `example.com` should look similar to the following and must be added to the domain `example.org`: 
-```
-_acme-challenge.sub    IN CNAME   _acme-challenge.example.com.
-```
-
-In environments with more than one DNS provider and/or account for `dns-01` challenging, use: 
-```shell
-$ HETZNER_USERNAME='your-hetzner-user' HETZNER_PASSWORD='your-hetzner-password' dehydrated -c -d 'sub.example.org' -t 'dns-01' -k '/etc/dehydrated/hooks/hetzner/hook.py'
+ + Hetzner hook executing exit_hook...
 ```

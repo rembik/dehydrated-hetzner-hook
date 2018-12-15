@@ -1,425 +1,817 @@
 #!/usr/bin/env python
 
 from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
 from __future__ import unicode_literals
 
-from builtins import str
-
-from future import standard_library
-standard_library.install_aliases()
-
-import dns.exception
+from bs4 import BeautifulSoup
+from contextlib import contextmanager
 import dns.resolver
+import dns.zone
+import hashlib
 import logging
 import os
-import requests
-import sys
-import time
 import re
-import json
+import time
+import requests
+from six import string_types
+import sys
+from urllib3.util.retry import Retry
 
-from tld import get_tld
-from bs4 import BeautifulSoup
-
-# Enable verified HTTPS requests on older Pythons
-# http://urllib3.readthedocs.org/en/latest/security.html
-if sys.version_info[0] == 2:
-    try:
-        requests.packages.urllib3.contrib.pyopenssl.inject_into_urllib3()
-    except AttributeError:
-        # see https://github.com/certbot/certbot/issues/1883
-        import urllib3.contrib.pyopenssl
-        urllib3.contrib.pyopenssl.inject_into_urllib3()
-
-logger = logging.getLogger(__name__)
-logger.addHandler(logging.StreamHandler())
-
-try:
-    base_dir = '{0}/hooks/hetzner'.format(os.environ['BASEDIR'])
-except KeyError:
-    base_dir = '/opt/dehydrated-hetzner-hook'
-    logger.error(' + Unable to get dehydrated BASEDIR in environment! Use {0} as base directory instead'.format(base_dir))
-try:
-    auth_username = os.environ['HETZNER_USERNAME']
-    auth_password = os.environ['HETZNER_PASSWORD']
-except KeyError:
-    logger.error(' + Unable to get Hetzner Robot credentials in environment!')
-    sys.exit(1)
-try:
-    with open('{0}/accounts/{1}.json'.format(base_dir, auth_username), 'r') as f:
-        config = json.load(f)
-except IOError as e:
-    logger.error(' + {0} - config for account "{1}"! Try default hook config instead'.format(e, auth_username))
-    try:
-        with open('{0}/accounts/default.json'.format(base_dir), 'r') as f:
-            config = json.load(f)
-    except IOError as e:
-        logger.error(' + {0} - Can not load default Hetzner Robot hook config!'.format(e))
-        sys.exit(1)  
-base_url = 'https://robot.your-server.de'
-login_url = 'https://accounts.hetzner.com'
-response_check = {'login': {'de': 'Herzlich Willkommen auf Ihrer', 'en': 'Welcome to your'}, 'update': {'de': 'Vielen Dank', 'en': 'Thank you for'}}
-
-if config['debug'] == True:
-    logger.setLevel(logging.DEBUG)
-else:
-    logger.setLevel(logging.INFO)
+LOGGER = logging.getLogger(__name__)
 
 
-def _get_nameservers(fld):
-    nameservers = []
-    default_nameservers = ['8.8.8.8','8.8.4.4']
-    dns_ns_rdatatypes = ['SOA','NS']
-    for dns_ns_rdatatype in dns_ns_rdatatypes:
-        try:
-            dns_resolver = dns.resolver.Resolver()
-            dns_resolver.nameservers = default_nameservers
-            dns_ns_response = dns_resolver.query(fld, dns_ns_rdatatype)
-            for ns in dns_ns_response:
-                ns = ns.mname if dns_ns_rdatatype == 'SOA' else ns.target
-                ns = str(ns)[:-1] if str(ns)[-1] == '.' else str(ns)
-                try:
-                    dns_ns_ipv4_response = dns_resolver.query(ns, 'A')
-                    for ns_ipv4 in dns_ns_ipv4_response:
-                        ns_ipv4 = str(ns_ipv4.address)
-                        #logger.debug('   {0} {1} => IPv4 {2}'.format(dns_ns_rdatatype, ns, ns_ipv4))
-                        if ns_ipv4 not in nameservers:
-                            nameservers.append(ns_ipv4)
-                except dns.exception.DNSException as e_ns_ipv4:
-                    logger.debug('   A {0} => {1}'.format(ns, e_ns_ipv4))
-        except dns.exception.DNSException as e_ns:
-            logger.debug('   {0} {1} => {2}'.format(dns_ns_rdatatype, fld, e_ns))
-    nameservers = nameservers if nameservers else default_nameservers
-    logger.debug('   DNS {0} => IPv4 {1}'.format(fld, nameservers))
+class Provider(object):
+    """
+    Implements the Hetzner DNS Provider.
+    There are two variants to manage DNS records on Hetzner: Hetzner Robot or
+    Hetzner konsoleH. Both do not provide a common API, therefore this provider
+    implements missing read and write methods in a generic way. For editing DNS
+    records on Hetzner, this provider manipulates and replaces the whole DNS zone.
+    Furthermore, there is no unique identifier to each record in the way that Lexicon
+    expects, why this provider implements a pseudo-identifer based on the record type,
+    name and content for use of the --identifier parameter. Supported identifier
+    formats are:
+        - hash  generated|verified by 'list' command; e.g. '30fa112'
+        - raw   concatenation of the record type, name (FQDN) and content (if possible
+                FQDN) with delimiter '/'; e.g. 'SRV/example.com./0 0 443 msx.example.com.'
+                or 'TXT/example.com./challengetoken'
+    Additional, this provider implements the option of replacing an A, AAAA or TXT record
+    name with an existent linked CNAME for edit actions via the --linked parameter and
+    the option of waiting until record is publicly propagated after succeeded create or
+    update actions via the --propagated parameter. As further restriction, the use of a
+    linked CNAME is only enabled if the record type & record name or the raw identifier are
+    specified, and additionally for the update action the record name remains the same.
+    """
 
-    return nameservers
+    def __init__(self, config=None):
+        self.config = config if config else {}
+        self.domain = self.config.get('domain', None)
+        self.domain_id = None
+        self.api = {
+            'robot': {
+                'endpoint': 'https://robot.your-server.de',
+                'filter': [{'name': 'div', 'attrs': {'id': 'center_col'}}],
+                'auth': {
+                    'endpoint': 'https://accounts.hetzner.com',
+                    'GET': {'url': '/login'},
+                    'POST': {'url': '/login_check'},
+                    'filter': [{'name': 'form', 'attrs': {'id': 'login-form'}}],
+                    'user': '_username',
+                    'pass': '_password'
+                },
+                'exit': {
+                    'GET': {'url': '/login/logout/r/true'}
+                },
+                'domain_id': {
+                    'GET': {'url': '/dns/index/page/<index>'},
+                    'filter': [
+                        {'name': 'div', 'attrs': {'id': 'center_col'}},
+                        {'name': 'table', 'attrs': {'class': 'box_title'}}
+                    ],
+                    'domain': [{'name': 'td', 'attrs': {'class': 'title'}}],
+                    'id': {'attr': 'onclick', 'regex': r'\'(\d+)\''}
+                },
+                'zone': {
+                    'GET': [{'url': '/dns/update/id/<id>'}],
+                    'POST': {'url': '/dns/update'},
+                    'filter': [
+                        {'name': 'div', 'attrs': {'id': 'center_col'}},
+                        {'name': 'ul', 'attrs': {'class': 'error_list'}}
+                    ],
+                    'file': 'zonefile'
+                }
+            },
+            'konsoleh': {
+                'endpoint': 'https://konsoleh.your-server.de',
+                'filter': [{'name': 'div', 'attrs': {'id': 'content'}}],
+                'auth': {
+                    'GET': {},
+                    'POST': {'url': '/login.php'},
+                    'filter': [{'name': 'form', 'attrs': {'id': 'loginform'}}],
+                    'user': 'login_user_inputbox',
+                    'pass': 'login_pass_inputbox'
+                },
+                'exit': {
+                    'GET': {'url': '/logout.php'}
+                },
+                'domain_id': {
+                    'GET': {'params': {'page': '<index>'}},
+                    'filter': [
+                        {'name': 'div', 'attrs': {'id': 'domainlist'}},
+                        {'name': 'dl'},
+                        {'name': 'a'}
+                    ],
+                    'domain': [{'name': 'strong'}],
+                    'id': {'attr': 'href', 'regex': r'=(D\d+)'}
+                },
+                'zone': {
+                    'GET': [
+                        {'params': {'domain_number': '<id>'}},
+                        {'url': '/dns.php', 'params': {'dnsaction2': 'editintextarea'}}
+                    ],
+                    'POST': {'url': '/dns.php'},
+                    'filter': [
+                        {'name': 'div', 'attrs': {'id': 'content'}},
+                        {'name': 'div', 'attrs': {'class': 'error'}}
+                    ],
+                    'file': 'zone_file1'
+                }
+            }
+        }
+        self.session = None
 
+        self.account = os.environ.get('HETZNER_AUTH_ACCOUNT', 'robot')
+        if self.account not in ('robot', 'konsoleh'):
+            LOGGER.error('Hetzner => HETZNER_AUTH_ACCOUNT is invalid: \'%s\' '
+                         '(choose from \'robot\' or \'konsoleh\')', self.account)
+            raise AssertionError
+        self.username = os.environ.get('HETZNER_AUTH_USERNAME')
+        assert self.username is not None
+        self.password = os.environ.get('HETZNER_AUTH_PASSWORD')
+        assert self.username is not None
 
-def _check_dns_cname(domain):
-    domain_cname = [domain, False]
-    logger.debug(' + Checking domain _acme-challenge.{0} for CNAME entry'.format(domain_cname[0]))
-    cname_concatenated = True
-    cname_concatenation = 0
-    cname_max_concatenations = 10
-    while(cname_concatenated == True):
-        if cname_concatenation >= cname_max_concatenations:
-            logger.error(' + Domain _acme-challenge.{0} has more than {1} concatenated CNAME entries'.format(domain_cname[0], cname_max_concatenations))
-            logger.error(' + ERROR: Reduce the amount of CNAME concatenations!')
-            sys.exit(1)
-        challenge = domain_cname[1] if domain_cname[1] else '_acme-challenge.{0}'.format(domain_cname[0])
-        fld = get_tld('http://' + domain_cname[1]) if domain_cname[1] else get_tld('http://' + domain_cname[0])
-        nameservers = _get_nameservers(fld)
-        try:
-            dns_resolver = dns.resolver.Resolver()
-            dns_resolver.nameservers = nameservers
-            dns_cname_response = dns_resolver.query(challenge, 'CNAME')
-            for cname in dns_cname_response:
-                cname = str(cname.target)[:-1] if str(cname.target)[-1] == '.' else str(cname.target)
-                cname_concatenation += 1
-                if get_tld('http://' + cname, fail_silently=True) != None:
-                    logger.debug('   CNAME {0} => {1}'.format(challenge, cname))
-                    domain_cname = [domain, cname]
+    def authenticate(self):
+        """
+        Connects to Hetzner account and returns, if authentification was
+        successful and the domain or CNAME target is managed by this account.
+        """
+        with self._session(self.domain, get_zone=False):
+            return True
+
+    def create_record(self, type, name, content):
+        """
+        Connects to Hetzner account, adds a new record to the zone and returns a
+        boolean, if creation was successful or not. Needed record type, name and
+        content for record to create.
+        """
+        with self._session(self.domain, self.domain_id) as ddata:
+            # Validate method parameters
+            if not type or not name or not content:
+                LOGGER.warning('Hetzner => Record has no type|name|content specified')
+                return False
+
+            # Add record to zone
+            name = ddata['cname'] if ddata['cname'] else self._fqdn_name(name)
+            rrset = ddata['zone']['data'].get_rdataset(name, rdtype=type, create=True)
+            for rdata in rrset:
+                if self._convert_content(type, content) == rdata.to_text():
+                    LOGGER.info('Hetzner => Record with content \'%s\' already exists',
+                                content)
+                    return True
+
+            ttl = (rrset.ttl if rrset.ttl > 0
+                   and rrset.ttl < self._get_lexicon_option('ttl')
+                   else self._get_lexicon_option('ttl'))
+            rdataset = dns.rdataset.from_text(rrset.rdclass, rrset.rdtype,
+                                              ttl, self._convert_content(type, content))
+            rrset.update(rdataset)
+            # Post zone to Hetzner
+            synced_change = self._post_zone(ddata['zone'])
+            if synced_change:
+                self._propagated_record(type, name, self._convert_content(type, content),
+                                        ddata['nameservers'])
+            return synced_change
+
+    def list_records(self, type=None, name=None, content=None):
+        """
+        Connects to Hetzner account and returns a list of records filtered by record
+        type, name and content. The list is empty if no records found.
+        """
+        with self._session(self.domain, self.domain_id) as ddata:
+            name = self._fqdn_name(name) if name else None
+            return self._list_records(ddata['zone']['data'], type, name, content)
+
+    def update_record(self, identifier=None, type=None, name=None, content=None):
+        """
+        Connects to Hetzner account, changes an existing record and returns a boolean,
+        if update was successful or not. Needed identifier or type & name to lookup
+        over all records of the zone for exactly one record to update.
+        """
+        with self._session(self.domain, self.domain_id) as ddata:
+            # Validate method parameters
+            if identifier:
+                dtype, dname, dcontent = self._parse_identifier(identifier, ddata['zone']['data'])
+                if dtype and dname and dcontent:
+                    type = type if type else dtype
+                    name = name if name else dname
+                    content = content if content else dcontent
                 else:
-                    logger.error('   CNAME {0} => {1}'.format(challenge, cname))
-                    logger.error(' + ERROR: Need CNAME target with valid top level domain at the end!')
-                    sys.exit(1)
-        except dns.exception.DNSException as e:
-            logger.debug('   CNAME {0} => {1}'.format(challenge, e))
-            cname_concatenated = False
-    logger.debug(' + CNAME _acme-challenge.{0} => {1}'.format(domain_cname[0], domain_cname[1]))
+                    LOGGER.warning('Hetzner => Record with identifier \'%s\' does not exist',
+                                   identifier)
+                    return False
 
-    return domain_cname
+            elif type and name and content:
+                dtype, dname, dcontent = type, name, None
+            else:
+                LOGGER.warning('Hetzner => Record has no type|name|content specified')
+                return False
 
+            dname = ddata['cname'] if ddata['cname'] else self._fqdn_name(dname)
+            records = self._list_records(ddata['zone']['data'], dtype, dname, dcontent)
+            if len(records) == 1:
+                # Remove record from zone
+                rrset = ddata['zone']['data'].get_rdataset(records[0]['name']+'.',
+                                                           rdtype=records[0]['type'])
+                rdatas = []
+                for rdata in rrset:
+                    if self._convert_content(records[0]['type'],
+                                             records[0]['content']) != rdata.to_text():
+                        rdatas.append(rdata.to_text())
+                if rdatas:
+                    rdataset = dns.rdataset.from_text_list(rrset.rdclass, rrset.rdtype,
+                                                           records[0]['ttl'], rdatas)
+                    ddata['zone']['data'].replace_rdataset(records[0]['name']+'.', rdataset)
+                else:
+                    ddata['zone']['data'].delete_rdataset(records[0]['name']+'.',
+                                                          records[0]['type'])
+                # Add record to zone
+                name = ddata['cname'] if ddata['cname'] else self._fqdn_name(name)
+                rrset = ddata['zone']['data'].get_rdataset(name, rdtype=type, create=True)
+                synced_change = False
+                for rdata in rrset:
+                    if self._convert_content(type, content) == rdata.to_text():
+                        LOGGER.info('Hetzner => Record with content \'%s\' already exists',
+                                    content)
+                        synced_change = True
+                        break
+                if not synced_change:
+                    ttl = (rrset.ttl if rrset.ttl > 0
+                           and rrset.ttl < self._get_lexicon_option('ttl')
+                           else self._get_lexicon_option('ttl'))
+                    rdataset = dns.rdataset.from_text(rrset.rdclass, rrset.rdtype, ttl,
+                                                      self._convert_content(type, content))
+                    rrset.update(rdataset)
+                # Post zone to Hetzner
+                synced_change = self._post_zone(ddata['zone'])
+                if synced_change:
+                    self._propagated_record(type, name, self._convert_content(type, content),
+                                            ddata['nameservers'])
+                return synced_change
 
-def _has_dns_propagated(domain, token):
-    challenge = domain[1] if domain[1] else '_acme-challenge.{0}'.format(domain[0])
-    logger.debug(' + Checking domain {0} for TXT entry {1}'.format(challenge, token))
-    fld = get_tld('http://' + domain[1]) if domain[1] else get_tld('http://' + domain[0])
-    nameservers = _get_nameservers(fld)
-    try:
-        dns_resolver = dns.resolver.Resolver()
-        dns_resolver.nameservers = nameservers
-        dns_txt_response = dns_resolver.query(challenge, 'TXT')
-        for txt in dns_txt_response:
-            if token in [b.decode('UTF-8') for b in txt.strings]:
-                return True
-    except dns.exception.DNSException as e:
-        logger.debug('   TXT {0} => {1}'.format(challenge, e))
-        
-    return False
+            LOGGER.warning('Hetzner => Record lookup has not only one match')
+            return False
 
+    def delete_record(self, identifier=None, type=None, name=None, content=None):
+        """
+        Connects to Hetzner account, removes an existing record from the zone and returns a
+        boolean, if deletion was successful or not. Uses identifier or type, name & content to
+        lookup over all records of the zone for one or more records to delete.
+        """
+        with self._session(self.domain, self.domain_id) as ddata:
+            # Validate method parameters
+            if identifier:
+                type, name, content = self._parse_identifier(identifier, ddata['zone']['data'])
+                if type is None or name is None or content is None:
+                    LOGGER.info('Hetzner => Record with identifier \'%s\' does not exist',
+                                identifier)
+                    return True
 
-def _login(username, password):
-    logger.debug(' + Logging in on Hetzner Robot with account "{0}"'.format(username))
-    login_form_url = '{0}/login'.format(login_url)
-    login_check_url = '{0}/login_check'.format(login_url)
-    session = requests.session()
-    session.get(login_form_url)
-    r = session.post(login_check_url, data={'_username': username, '_password': password})
-    logger.debug(' + Landing on page {0} with status code {1} and cookie {2}'.format(r.url,r.status_code,r.history[0].cookies))
-    if '{0}/account/masterdata'.format(login_url) == r.url and r.status_code == 200:
-        r = session.get(base_url)
-        logger.debug(' + Landing on page {0} with status code {1} and cookie {2}'.format(r.url,r.status_code,r.history[0].cookies))
-    # ugly: the hetzner status code is always 200, but redirecting back to the login page form with an "error message".
-    if base_url not in r.url or r.status_code != 200:
-        logger.error(" + Unable to login with Hetzner credentials from environment!")
-        sys.exit(1)
-        return
-           
-    return session
-    
-    
-def _logout(session):
-    logger.debug(' + Logging out from Hetzner Robot')
-    logout_url = '{0}/login/logout/r/true'.format(base_url)
-    r = session.get(logout_url)
-    
-    return '{0}/logout'.format(login_url) in r.url and r.status_code == 200
+            name = ddata['cname'] if ddata['cname'] else (self._fqdn_name(name) if name else None)
+            records = self._list_records(ddata['zone']['data'], type, name, content)
+            if records:
+                # Remove records from zone
+                for record in records:
+                    rrset = ddata['zone']['data'].get_rdataset(record['name']+'.',
+                                                               rdtype=record['type'])
+                    rdatas = []
+                    for rdata in rrset:
+                        if self._convert_content(record['type'],
+                                                 record['content']) != rdata.to_text():
+                            rdatas.append(rdata.to_text())
+                    if rdatas:
+                        rdataset = dns.rdataset.from_text_list(rrset.rdclass, rrset.rdtype,
+                                                               record['ttl'], rdatas)
+                        ddata['zone']['data'].replace_rdataset(record['name']+'.', rdataset)
+                    else:
+                        ddata['zone']['data'].delete_rdataset(record['name']+'.', record['type'])
+                # Post zone to Hetzner
+                synced_change = self._post_zone(ddata['zone'])
+                return synced_change
 
+            LOGGER.info('Hetzner => Record lookup has no matches')
+            return True
 
-def _get_zone_id(domain, session):
-    logger.debug(' + Requesting list of zone IDs')
-    tld = get_tld('http://' + domain[1]) if domain[1] else get_tld('http://' + domain[0])
-    # update zone IDs from config.json, if they are older then one day
-    try:
-        zone_id_updated = time.strptime(config['zone_ids_updated'], "%d-%m-%YT%H:%M:%S +0000")
-    except ValueError:
-        zone_id_updated = time.gmtime(0)  
-    if (int(time.time()) - int(time.mktime(zone_id_updated))) < 86400:
-        zone_ids = {}
-        for zone_id in config['zone_ids']:
-            zone_ids[zone_id] = config['zone_ids'][zone_id]
-        logger.debug(' + Responsed {0} zone IDs'.format(len(zone_ids)))
-    else:
-        zone_ids = _update_zone_ids(session)   
-    
-    return zone_ids[tld]
+    ###############################################################################
+    # Provider base helpers
+    ###############################################################################
 
+    @staticmethod
+    def _create_identifier(rdtype, name, content):
+        """
+        Creates hashed identifier based on full qualified record type, name & content
+        and returns hash.
+        """
+        sha256 = hashlib.sha256()
+        sha256.update((rdtype + '/').encode('UTF-8'))
+        sha256.update((name + '/').encode('UTF-8'))
+        sha256.update(content.encode('UTF-8'))
+        return sha256.hexdigest()[0:7]
 
-def _extract_zone_id_from_js(s):
-    r = re.compile(r'\'(\d+)\'')
-    m = r.search(s)
-    if not m: return False
-    
-    return int(m.group(1))
-    
-    
-def _update_zone_ids(session):
-    logger.debug(' + Updating list of zone IDs')    
-    # delete zone IDs from config
-    delete_zone_ids = []
-    for zone_id in config['zone_ids']:
-        delete_zone_ids.append(zone_id)
-    for zone_id in delete_zone_ids:
-        del config['zone_ids'][zone_id]
-    # get zone IDs from Hetzner Robot
-    zone_ids = {}
-    last_count = -1
-    page = 1
-    while last_count != len(zone_ids):
-        last_count = len(zone_ids)
-        dns_url = '{0}/dns/index/page/{1}'.format(base_url, page)  
-        r = session.get(dns_url)
-        soup = BeautifulSoup(r.text, 'html5lib')
-        boxes = soup.findAll('table', attrs={'class': 'box_title'})
-        for box in boxes:
-            expandBoxJS = dict(box.attrs)['onclick']
-            zone_id = _extract_zone_id_from_js(expandBoxJS)
-            tdTag = box.find('td', attrs={'class': 'title'})
-            domain = tdTag.renderContents().decode('UTF-8')
-            zone_ids[domain] = zone_id
-            config['zone_ids'][domain] = zone_id        
-        page += 1
-    # save zone IDs in config file with current timestamp       
-    config['zone_ids_updated'] = time.strftime("%d-%m-%YT%H:%M:%S +0000", time.gmtime())
-    with open('{0}/accounts/{1}.json'.format(base_dir, auth_username), 'w') as f:
-        json.dump(config, f, indent=4, separators=(',', ': '))    
-    logger.debug(' + Updated & responsed {0} zone IDs'.format(len(zone_ids)))
-    
-    return zone_ids
-
-
-def _get_zone_file(zone_id, session):
-    dns_url = '{0}/dns/update/id/{1}'.format(base_url, zone_id)
-    r = session.get(dns_url)
-    soup = BeautifulSoup(r.text, 'html5lib')
-    inputTag = soup.find('input', attrs={'id': 'csrf_token'})
-    csrf_token = inputTag['value']
-    textarea = soup.find('textarea', attrs={'id': 'zonefile'})
-    zone_file = [csrf_token, textarea.renderContents().decode('UTF-8')]  
-
-    return zone_file
-
-
-def _edit_zone_file(zone_id, session, domain, token, edit_txt_record):
-    if domain[1]:
-        tld = get_tld('http://' + domain[1], as_object=True)
-        name = '@' if not tld.subdomain else tld.subdomain
-        challenge = domain[1]
-    else:
-        tld = get_tld('http://' + domain[0], as_object=True)
-        name = '_acme-challenge' if not tld.subdomain else '_acme-challenge.{0}'.format(tld.subdomain)
-        challenge = '_acme-challenge.{0}'.format(domain[0])
-    logger.debug(' + Get zone {0} for TXT record {1} from Hetzner Robot'.format(tld, challenge))
-    zone_file = _get_zone_file(zone_id, session)
-    logger.debug(' + Searching zone {0} for TXT record {1}'.format(tld, challenge))
-    file = os.path.join('{0}/zones'.format(base_dir), '{0}.txt'.format(tld))
-    txt_record_regex = re.compile(name + r'\s+IN\s+TXT\s+"'+ token + '"')
-    found_txt_record = False
-    try:
-        file_mod_time = int(os.path.getmtime(file))
-    except OSError as e:
-        file_mod_time = int(0)
-    if (int(time.time()) - file_mod_time) > 30:
-        f = open(file,'w')
-        f.write(zone_file[1])
-        f.close()
-    f = open(file,'r+')
-    lines = f.readlines()
-    zone_file[1] = ''
-    f.seek(0)
-    for line in lines:
-        if txt_record_regex.search(line):
-            found_txt_record = True
-            if edit_txt_record=='create':
-                logger.debug(' + TXT record for {0} with token {1} allready exists'.format(challenge, token))
-            elif edit_txt_record=='delete': 
-                logger.debug(' + Deleted TXT record: {0} IN TXT "{1}"'.format(name, token))
-                continue
-        zone_file[1] = zone_file[1] + line
-        f.write(line)
-    if not found_txt_record:
-        if edit_txt_record=='create':
-            logger.debug(' + Unable to locate TXT record for {0}'.format(challenge))
-            txt_record = '{0} IN TXT "{1}"\n'.format(name, token)
-            logger.debug(' + Created TXT record: {0} IN TXT "{1}"'.format(name, token))
-            zone_file[1] = zone_file[1] + txt_record
-            f.write(txt_record)
+    def _parse_identifier(self, identifier, zone=None):
+        """
+        Parses the record identifier and returns type, name & content of the associated record
+        as tuple. The tuple is empty if no associated record found.
+        """
+        rdtype, name, content = None, None, None
+        if len(identifier) > 7:
+            parts = identifier.split('/')
+            rdtype, name, content = parts[0], parts[1], '/'.join(parts[2:])
         else:
-            logger.debug(' + TXT record for {0} with token {1} dont exists'.format(challenge, token))
-    f.truncate()
-    f.close()
-    logger.debug(' + Saved zonefile: {0}'.format(file))
-    
-    return zone_file
-    
+            records = self._list_records(zone)
+            for record in records:
+                if record['id'] == identifier:
+                    rdtype, name, content = record['type'], record['name']+'.', record['content']
+        return rdtype, name, content
 
-def _update_zone_file(zone_id, session, zone_file):
-    logger.debug(' + Updating zone on Hetzner Robot:\n   id: {0}\n   _csrf_token: {1}\n   zonefile:\n\n{2}'.format(zone_id, zone_file[0], zone_file[1]))
-    update_url = '{0}/dns/update'.format(base_url)
-    r = session.post(
-        update_url, 
-        data={'id': zone_id, 'zonefile': zone_file[1], '_csrf_token': zone_file[0]}
-    )
-      
-    # ugly: the hetzner status code is always 200 (delivering the update form as an "error message")
-    return response_check['update'][config['language']] in r.text
+    def _fqdn_name(self, name):
+        """
+        PLACEHOLDER
+        Strips trailing period from fqdn if present, checks if the record_name is fully
+        specified and returns record name.
+        """
+        name = name.rstrip('.')
+        if not name.endswith(self.domain):
+            name = "{0}.{1}".format(name, self.domain)
+        return "{0}.".format(name)
 
+    def _convert_content(self, rdtype, content):
+        """
+        Converts type dependent record content into well formed and fully qualified
+        content for domain zone and returns content.
+        """
+        if rdtype == 'TXT':
+            if content[0] != '"':
+                content = '"' + content
+            if content[-1] != '"':
+                content += '"'
+        if rdtype in ('CNAME', 'MX', 'NS', 'SRV'):
+            if content[-1] != '.':
+                content = self._fqdn_name(content)
+        return content
 
-def create_txt_record(args, session):
-    domain = args[0]
-    token = args[2]
-    challenge = domain[1] if domain[1] else '_acme-challenge.{0}'.format(domain[0])
-    logger.debug(' + Challenge dns-01: {0} => {1} as TXT record'.format(challenge, token))
-    zone_id = _get_zone_id(domain, session)
-    zone_file = _edit_zone_file(zone_id, session, domain, token, 'create')
-    update_txt_record = _update_zone_file(zone_id, session, zone_file)
-    if update_txt_record: 
-        logger.debug(' + Updated TXT record for {0} on Hetzner Robot'.format(challenge))
-    else:
-        logger.error(' + Error during updating zone for {0} on Hetzner Robot!'.format(challenge))
-        sys.exit(1)
+    def _clean_TXT_record(self, record):
+        """
+        PLACEHOLDER
+        Removes quotes around the TXT record and returns record.
+        """
+        if record['type'] == 'TXT':
+            record['content'] = record['content'][1:-1]
+        return record
 
+    def _list_records(self, zone, rdtype=None, name=None, content=None):
+        """
+        Iterates over all records of the zone and returns a list of records filtered
+        by record type, name and content. The list is empty if no records found.
+        """
+        records = []
+        rrsets = zone.iterate_rdatasets() if zone else []
+        for rname, rdataset in rrsets:
+            rtype = dns.rdatatype.to_text(rdataset.rdtype)
+            if ((not rdtype or rdtype == rtype)
+                    and (not name or name == rname.to_text())):
+                for rdata in rdataset:
+                    rdata = rdata.to_text()
+                    if (not content or self._convert_content(rtype, content) == rdata):
+                        raw_rdata = self._clean_TXT_record({'type': rtype,
+                                                            'content': rdata})['content']
+                        data = {
+                            'type': rtype,
+                            'name': rname.to_text(True),
+                            'ttl': int(rdataset.ttl),
+                            'content': raw_rdata,
+                            'id': Provider._create_identifier(rtype, rname.to_text(), raw_rdata)
+                        }
+                        records.append(data)
+        return records
 
-def delete_txt_record(args, session):
-    domain = args[0]
-    token = args[2]
-    challenge = domain[1] if domain[1] else '_acme-challenge.{0}'.format(domain[0])
-    zone_id = _get_zone_id(domain, session)
-    zone_file = _edit_zone_file(zone_id, session, domain, token, 'delete')
-    delete_txt_record = _update_zone_file(zone_id, session, zone_file)
-    if delete_txt_record: 
-        logger.debug(' + Deleted TXT record for {0} on Hetzner Robot'.format(challenge))
-    else:
-        logger.error(' + Error during updating zone for {0} on Hetzner Robot!'.format(challenge))
-        sys.exit(1)
+    def _request(self, action='GET', url='/', data=None, query_params=None):
+        """
+        Requests to Hetzner by current session and returns the response.
+        """
+        if data is None:
+            data = {}
+        if query_params is None:
+            query_params = {}
+        response = self.session.request(action, self.api[self.account]['endpoint'] + url,
+                                        params=query_params, data=data)
+        response.raise_for_status()
+        return response
+
+    def _get(self, url='/', query_params=None):
+        """
+        PLACEHOLDER
+        """
+        return self._request('GET', url, query_params=query_params)
+
+    def _post(self, url='/', data=None, query_params=None):
+        """
+        PLACEHOLDER
+        """
+        return self._request('POST', url, data=data, query_params=query_params)
+
+    def _get_lexicon_option(self, option):
+        """
+        PLACEHOLDER
+        Creates default lexicon options and returns requested option.
+        """
+        defaults = {
+            'domain': self.domain,
+            'action': 'list',
+            'identifier': None,
+            'type': 'TXT',
+            'name': None,
+            'ttl': 3600
+        }
+        return self.config.get(option, defaults[option])
+
+    def _get_provider_option(self, option):
+        """
+        PLACEHOLDER
+        Creates default provider options and returns requested option.
+        """
+        defaults = {
+            'domain': self.domain,
+            'action': 'list',
+            'identifier': None,
+            'type': 'TXT',
+            'name': None,
+            'ttl': 3600,
+            'linked': 'yes',
+            'propagated': 'yes',
+            'latency': 30
+        }
+        return self.config.get(option, defaults[option])
+
+    ###############################################################################
+    # Provider option helpers
+    ###############################################################################
+
+    @staticmethod
+    def _dns_lookup(name, rdtype, nameservers=None):
+        """
+        Looks on specified or default system domain nameservers to resolve record type
+        & name and returns record set. The record set is empty if no propagated
+        record found.
+        """
+        rrset = dns.rrset.from_text(name, 0, 1, rdtype)
+        try:
+            resolver = dns.resolver.Resolver()
+            if nameservers:
+                resolver.nameservers = nameservers
+            rrset = resolver.query(name, rdtype)
+            for rdata in rrset:
+                LOGGER.debug('DNS Lookup => %s %s %s %s',
+                             rrset.name.to_text(), dns.rdataclass.to_text(rrset.rdclass),
+                             dns.rdatatype.to_text(rrset.rdtype), rdata.to_text())
+        except dns.exception.DNSException as error:
+            LOGGER.debug('DNS Lookup => %s', error)
+        return rrset
+
+    @staticmethod
+    def _get_nameservers(domain):
+        """
+        Looks for domain nameservers and returns the IPs of the nameservers as a list.
+        The list is empty, if no nameservers were found. Needed associated domain zone
+        name for lookup.
+        """
+        nameservers = []
+        rdtypes_ns = ['SOA', 'NS']
+        rdtypes_ip = ['A', 'AAAA']
+        for rdtype_ns in rdtypes_ns:
+            for rdata_ns in Provider._dns_lookup(domain, rdtype_ns):
+                for rdtype_ip in rdtypes_ip:
+                    for rdata_ip in Provider._dns_lookup(rdata_ns.to_text().split(' ')[0],
+                                                         rdtype_ip):
+                        if rdata_ip.to_text() not in nameservers:
+                            nameservers.append(rdata_ip.to_text())
+        LOGGER.debug('DNS Lookup => %s IN NS %s', domain, ' '.join(nameservers))
+        return nameservers
+
+    @staticmethod
+    def _get_dns_cname(name, link=False):
+        """
+        Looks for associated domain zone, nameservers and linked record name until no
+        more linked record name was found for the given fully qualified record name or
+        the CNAME lookup was disabled, and then returns the parameters as a tuple.
+        """
+        domain = dns.resolver.zone_for_name(name).to_text(True)
+        nameservers = Provider._get_nameservers(domain)
+        cname = None
+        links, max_links = 0, 5
+        while link:
+            if links >= max_links:
+                LOGGER.error('Hetzner => Record %s has more than %d linked CNAME '
+                             'records. Reduce the amount of CNAME links!',
+                             name, max_links)
+                raise AssertionError
+            qname = cname if cname else name
+            rrset = Provider._dns_lookup(qname, 'CNAME', nameservers)
+            if rrset:
+                links += 1
+                cname = rrset[0].to_text()
+                qdomain = dns.resolver.zone_for_name(cname)
+                if domain != qdomain.to_text(True):
+                    domain = qdomain.to_text(True)
+                    nameservers = Provider._get_nameservers(qdomain)
+            else:
+                link = False
+        if cname:
+            LOGGER.info('Hetzner => Record %s has CNAME %s', name, cname)
+        return domain, nameservers, cname
+
+    def _link_record(self):
+        """
+        Checks restrictions for use of CNAME lookup and returns a tuple of the
+        fully qualified record name to lookup and a boolean, if a CNAME lookup
+        should be done or not. The fully qualified record name is empty if no
+        record name is specified by this provider.
+        """
+        action = self._get_lexicon_option('action')
+        identifier = self._get_lexicon_option('identifier')
+        rdtype = self._get_lexicon_option('type')
+        name = (self._fqdn_name(self._get_lexicon_option('name'))
+                if self._get_lexicon_option('name') else None)
+        link = True if self._get_provider_option('linked') == 'yes' else False
+        qname = name
+        if identifier:
+            rdtype, name, _ = self._parse_identifier(identifier)
+        if action != 'list' and rdtype in ('A', 'AAAA', 'TXT') and name and link:
+            if action != 'update' or name == qname or not qname:
+                LOGGER.info('Hetzner => Enable CNAME lookup '
+                            '(see --linked parameter)')
+                return qname, True
+        LOGGER.info('Hetzner => Disable CNAME lookup '
+                    '(see --linked parameter)')
+        return qname, False
+
+    def _propagated_record(self, rdtype, name, content, nameservers=None):
+        """
+        If the publicly propagation check should be done, waits until the domain nameservers
+        responses with the propagated record type, name & content and returns a boolean,
+        if the publicly propagation was successful or not.
+        """
+        latency = self._get_provider_option('latency')
+        propagated = True if self._get_provider_option('propagated') == 'yes' else False
+        if propagated:
+            retry, max_retry = 0, 20
+            while retry < max_retry:
+                for rdata in Provider._dns_lookup(name, rdtype, nameservers):
+                    if content == rdata.to_text():
+                        LOGGER.info('Hetzner => Record %s has %s %s', name, rdtype, content)
+                        return True
+                retry += 1
+                retry_log = (', retry ({}/{}) in {}s...'.format((retry + 1), max_retry, latency)
+                             if retry < max_retry else '')
+                LOGGER.info('Hetzner => Record is not propagated%s', retry_log)
+                time.sleep(latency)
+        return False
+
+    ###############################################################################
+    # Hetzner API helpers
+    ###############################################################################
+
+    @staticmethod
+    def _filter_dom(dom, filters, last_find_all=False):
+        """
+        If not exists, creates an DOM from a given session response, then filters the DOM
+        via given API filters and returns the filtered DOM. The DOM is empty if the filters
+        have no match.
+        """
+        if isinstance(dom, string_types):
+            dom = BeautifulSoup(dom, 'html.parser')
+        for idx, find in enumerate(filters, start=1):
+            if not dom:
+                break
+            name, attrs = find.get('name'), find.get('attrs', {})
+            if len(filters) == idx and last_find_all:
+                dom = dom.find_all(name, attrs=attrs) if name else dom.find_all(attrs=attrs)
+            else:
+                dom = dom.find(name, attrs=attrs) if name else dom.find(attrs=attrs)
+        return dom
+
+    @staticmethod
+    def _extract_hidden_data(dom):
+        """
+        Extracts hidden input data from DOM and returns the data as dictionary.
+        """
+        input_tags = dom.find_all('input', attrs={'type': 'hidden'})
+        data = {}
+        for input_tag in input_tags:
+            data[input_tag['name']] = input_tag['value']
+        return data
+
+    @staticmethod
+    def _extract_domain_id(string, regex):
+        """
+        Extracts domain ID from given string and returns the domain ID.
+        """
+        regex = re.compile(regex)
+        match = regex.search(string)
+        if not match:
+            return False
+        return str(match.group(1))
+
+    @contextmanager
+    def _session(self, domain, domain_id=None, get_zone=True):
+        """
+        Generates, authenticates and exits session to Hetzner account, and
+        provides tuple of additional needed domain data (domain nameservers,
+        zone and linked record name) to public methods. The tuple parameters
+        are empty if not existent or specified. Exits session and raises error
+        if provider fails during session.
+        """
+        name, link = self._link_record()
+        qdomain, nameservers, cname = Provider._get_dns_cname((name if name else domain+'.'), link)
+        qdomain_id, zone = domain_id, None
+        self.session = self._auth_session(self.username, self.password)
+        try:
+            if not domain_id or qdomain != domain:
+                qdomain_id = self._get_domain_id(qdomain)
+            if qdomain == domain:
+                self.domain_id = qdomain_id
+            if get_zone:
+                zone = self._get_zone(qdomain, qdomain_id)
+            yield {'nameservers': nameservers, 'zone': zone, 'cname': cname}
+        except Exception as exc:
+            raise exc
+        finally:
+            self._exit_session()
+
+    def _auth_session(self, username, password):
+        """
+        Creates session to Hetzner account, authenticates with given credentials and
+        returns the session, if authentication was successful. Otherwise raises error.
+        """
+        api = self.api[self.account]['auth']
+        endpoint = api.get('endpoint', self.api[self.account]['endpoint'])
+        session = requests.Session()
+        session_retries = Retry(total=10, backoff_factor=0.5)
+        session_adapter = requests.adapters.HTTPAdapter(max_retries=session_retries)
+        session.mount('https://', session_adapter)
+        response = session.request('GET', endpoint + api['GET'].get('url', '/'))
+        dom = Provider._filter_dom(response.text, api['filter'])
+        data = Provider._extract_hidden_data(dom)
+        data[api['user']], data[api['pass']] = username, password
+        response = session.request('POST', endpoint + api['POST']['url'], data=data)
+        if Provider._filter_dom(response.text, api['filter']):
+            LOGGER.error('Hetzner => Unable to authenticate session with %s account \'%s\': '
+                         'Invalid credentials',
+                         self.account, username)
+            raise AssertionError
+        LOGGER.info('Hetzner => Authenticate session with %s account \'%s\'',
+                    self.account, username)
+        return session
+
+    def _exit_session(self):
+        """
+        Exits session to Hetzner account and returns.
+        """
+        api = self.api[self.account]
+        response = self._get(api['exit']['GET']['url'])
+        if not Provider._filter_dom(response.text, api['filter']):
+            LOGGER.info('Hetzner => Exit session')
+        else:
+            LOGGER.warning('Hetzner => Unable to exit session')
+        self.session = None
+        return True
+
+    def _get_domain_id(self, domain):
+        """
+        Pulls all domains managed by authenticated Hetzner account, extracts their IDs
+        and returns the ID for the current domain, if exists. Otherwise raises error.
+        """
+        api = self.api[self.account]['domain_id']
+        qdomain = dns.name.from_text(domain).to_unicode(True)
+        domains, last_count, page = {}, -1, 0
+        while last_count != len(domains):
+            last_count = len(domains)
+            page += 1
+            url = (api['GET'].copy()).get('url', '/').replace('<index>', str(page))
+            params = api['GET'].get('params', {}).copy()
+            for param in params:
+                params[param] = params[param].replace('<index>', str(page))
+            response = self._get(url, query_params=params)
+            domain_tags = Provider._filter_dom(response.text, api['filter'], True)
+            for domain_tag in domain_tags:
+                domain_id = Provider._extract_domain_id(dict(domain_tag.attrs)[api['id']['attr']],
+                                                        api['id']['regex'])
+                domain = (Provider._filter_dom(domain_tag, api['domain'])
+                          .renderContents().decode('UTF-8'))
+                domains[domain] = domain_id
+                if domain == qdomain:
+                    LOGGER.info('Hetzner => Get ID %s for domain %s', domain_id, qdomain)
+                    return domain_id
+        LOGGER.error('Hetzner => ID for domain %s does not exists', qdomain)
+        raise AssertionError
+
+    def _get_zone(self, domain, domain_id):
+        """
+        Pulls the zone for the current domain from authenticated Hetzner account and
+        returns it as an zone object.
+        """
+        api = self.api[self.account]
+        for request in api['zone']['GET']:
+            url = (request.copy()).get('url', '/').replace('<id>', domain_id)
+            params = request.get('params', {}).copy()
+            for param in params:
+                params[param] = params[param].replace('<id>', domain_id)
+            response = self._get(url, query_params=params)
+        dom = Provider._filter_dom(response.text, api['filter'])
+        zone_file_filter = [{'name': 'textarea', 'attrs': {'name': api['zone']['file']}}]
+        zone_file = Provider._filter_dom(dom, zone_file_filter).renderContents().decode('UTF-8')
+        hidden = Provider._extract_hidden_data(dom)
+        zone = {'data': dns.zone.from_text(zone_file, origin=domain, relativize=False),
+                'hidden': hidden}
+        LOGGER.info('Hetzner => Get zone for domain %s', domain)
+        return zone
+
+    def _post_zone(self, zone):
+        """
+        Pushes updated zone for current domain to authenticated Hetzner account and
+        returns a boolean, if update was successful or not. Furthermore, waits until
+        the zone has been taken over, if it is a Hetzner Robot account.
+        """
+        api = self.api[self.account]['zone']
+        data = zone['hidden']
+        data[api['file']] = zone['data'].to_text(relativize=True)
+        response = self._post(api['POST']['url'], data=data)
+        if Provider._filter_dom(response.text, api['filter']):
+            LOGGER.error('Hetzner => Unable to update zone for domain %s: Syntax error\n\n%s',
+                         zone['data'].origin.to_unicode(True),
+                         zone['data'].to_text(relativize=True).decode('UTF-8'))
+            return False
+
+        LOGGER.info('Hetzner => Update zone for domain %s',
+                    zone['data'].origin.to_unicode(True))
+        if self.account == 'robot':
+            latency = self._get_provider_option('latency')
+            LOGGER.info('Hetzner => Wait %ds until Hetzner Robot has taken over zone...',
+                        latency)
+            time.sleep(latency)
+        return True
 
 
 def deploy_cert(args):
     domain, privkey_pem, cert_pem, fullchain_pem, chain_pem, timestamp = args
-    logger.debug(' + ssl_certificate: {0}'.format(fullchain_pem))
-    logger.debug(' + ssl_certificate_key: {0}'.format(privkey_pem))
+    LOGGER.debug('HETZNER => Deploy SSL certificate: %s', fullchain_pem)
+    LOGGER.debug('HETZNER => Deploy SSL certificate key: %s', privkey_pem)
     return
-
 
 def unchanged_cert(args):
     return
-    
 
 def invalid_challenge(args):
     domain, result = args
-    logger.debug(' + invalid_challenge for {0}'.format(domain))
-    logger.debug(' + Full error: {0}'.format(result))
+    LOGGER.debug('HETZNER => Invalid challenge for %s: %s', domain, result)
     return
 
+def deploy_challenge(args):
+    provider = Provider()
+    for idx in range(0, len(args), 3):
+        name = '_acme-challenge.{}'.format(args[idx])
+        provider.config = ({'action': 'create', 'name': name, 'propagated': 'no'}
+                           if idx < (len(args) - 3) else {'action': 'create', 'name': name})
+        provider.domain = dns.resolver.zone_for_name(args[idx]).to_text(True)
+        provider.authenticate()
+        provider.create_record('TXT', name, args[(idx + 2)])
+    return
 
-def create_all_txt_records(args):
-    session = _login(auth_username, auth_password)  
-    X = 3
-    for i in range(0, len(args), X):
-        args[i] = _check_dns_cname(args[i])
-    for i in range(0, len(args), X):
-        create_txt_record(args[i:i+X], session)
-    # give it 30 seconds to avoid nxdomain caching
-    logger.info(" + Settling down for 30s...")
-    time.sleep(30)
-    for i in range(0, len(args), X):
-        while(_has_dns_propagated(args[i], args[i+2]) == False):
-            logger.info(" + DNS not propagated, retry query after 30s...")
-            time.sleep(30)
-    if _logout(session):
-        logger.info(' + Hetzner Robot hook finished: deploy_challenge')
-    else:
-        logger.error(' + Hetzner Robot hook finished (with logout error): deploy_challenge')
-
-
-def delete_all_txt_records(args):
-    session = _login(auth_username, auth_password)
-    X = 3
-    for i in range(0, len(args), X):
-        args[i] = _check_dns_cname(args[i])
-    for i in range(0, len(args), X):
-        delete_txt_record(args[i:i+X], session)
-    if _logout(session):
-        logger.info(' + Hetzner Robot hook finished: clean_challenge')
-    else:
-        logger.error(' + Hetzner Robot hook finished (with logout error): clean_challenge')
-
+def clean_challenge(args):
+    provider = Provider()
+    for idx in range(0, len(args), 3):
+        name = '_acme-challenge.{}'.format(args[idx])
+        provider.config = {'action': 'delete', 'name': name}
+        provider.domain = dns.resolver.zone_for_name(args[idx]).to_text(True)
+        provider.authenticate()
+        provider.delete_record(None, 'TXT', name, args[(idx + 2)])
+    return
 
 def startup_hook(args):
     return
 
-
 def exit_hook(args):
     return
 
-
 def main(argv):
+    log_level = os.environ.get('HETZNER_LOG_LEVEL', 'INFO')
+    if log_level not in ('CRITICAL', 'ERROR', 'WARNING', 'INFO', 'DEBUG', 'NOTSET'):
+        LOGGER.error('Hetzner => HETZNER_LOG_LEVEL is invalid: \'%s\' (choose from '
+                     '\'CRITICAL\', \'ERROR\', \'WARNING\', \'INFO\', \'DEBUG\' or '
+                     '\'NOTSET\')', log_level)
+        raise AssertionError
+    logging.basicConfig(stream=sys.stdout, level=log_level, format='%(message)s')
     ops = {
-        'deploy_challenge': create_all_txt_records,
-        'clean_challenge' : delete_all_txt_records,
-        'deploy_cert'     : deploy_cert,
-        'unchanged_cert'  : unchanged_cert,
+        'deploy_cert': deploy_cert,
+        'unchanged_cert': unchanged_cert,
+        'deploy_challenge': deploy_challenge,
+        'clean_challenge': clean_challenge,
         'invalid_challenge': invalid_challenge,
         'startup_hook': startup_hook,
         'exit_hook': exit_hook
     }
     if argv[0] in ops:
-        logger.info(" + Hetzner Robot hook executing: {0}".format(argv[0]))
+        LOGGER.info(" + Hetzner hook executing {0}...".format(argv[0]))
         ops[argv[0]](argv[1:])
-
 
 if __name__ == '__main__':
     main(sys.argv[1:])

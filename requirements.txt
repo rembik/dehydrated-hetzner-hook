@@ -1,8 +1,6 @@
-beautifulsoup4==4.5.3
-dnspython==1.15.0
-future==0.15.2
-html5lib==1.0.1
-requests==2.9.1
-six==1.10.0
-tld==0.7.6
-wheel==0.28.0
+beautifulsoup4
+dnspython>=1.15.0,<2.0.0
+cryptography
+future
+requests[security]
+six
