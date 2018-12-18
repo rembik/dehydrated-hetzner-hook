@@ -793,13 +793,13 @@ def exit_hook(args):
     return
 
 def main(argv):
-    logging.basicConfig(stream=sys.stdout, level=log_level, format='%(message)s')
     log_level = os.environ.get('HETZNER_LOG_LEVEL', 'INFO')
     if log_level not in ('CRITICAL', 'ERROR', 'WARNING', 'INFO', 'DEBUG', 'NOTSET'):
         LOGGER.error('Hetzner => HETZNER_LOG_LEVEL is invalid: \'%s\' (choose from '
                      '\'CRITICAL\', \'ERROR\', \'WARNING\', \'INFO\', \'DEBUG\' or '
                      '\'NOTSET\')', log_level)
         raise AssertionError
+    logging.basicConfig(stream=sys.stdout, level=log_level, format='%(message)s')
     ops = {
         'deploy_cert': deploy_cert,
         'unchanged_cert': unchanged_cert,
