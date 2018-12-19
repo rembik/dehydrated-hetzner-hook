@@ -2,7 +2,11 @@
 
 *This hook is considered deprecated after being integrated into the Python DNS library [lexicon](https://github.com/AnalogJ/lexicon).*
 
-This is a hook for the [Let's Encrypt](https://letsencrypt.org/) ACME client [dehydrated](https://github.com/lukas2511/dehydrated) (previously known as `letsencrypt.sh`) that allows you to use [Hetzner Robot](https://www.hetzner.com/registrationrobot) or [Hetzner konsoleH](https://www.hetzner.com/domainregistration) DNS to respond to `dns-01` challenges. Requires Python and Hetzner account credentials (specifed as environment variables).
+[![GitHub release](https://img.shields.io/github/release/rembik/dehydrated-hetzner-hook.svg)](https://github.com/rembik/dehydrated-hetzner-hook/releases)
+[![PyPI version](https://img.shields.io/pypi/pyversions/dns-lexicon.svg)](https://github.com/rembik/dehydrated-hetzner-hook/blob/master/hook.py)
+[![GitHub license](https://img.shields.io/github/license/rembik/dehydrated-hetzner-hook.svg)](https://github.com/rembik/dehydrated-hetzner-hook/blob/master/LICENSE.md)
+
+This is a hook for the [Let's Encrypt](https://letsencrypt.org/) ACME client [dehydrated](https://github.com/lukas2511/dehydrated) (previously known as `letsencrypt.sh`) that allows you to use [Hetzner Robot](https://www.hetzner.com/registrationrobot) or [Hetzner konsoleH](https://www.hetzner.com/domainregistration) DNS to respond to `dns-01` challenges. Requires Python and Hetzner account credentials (specified as environment variables).
 
 ## Precondition
 ```shell
