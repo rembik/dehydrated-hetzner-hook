@@ -814,7 +814,7 @@ def main(argv):
         'exit_hook': exit_hook
     }
     if argv[0] in ops:
-        LOGGER.info(' + Hetzner hook executing {}...', argv[0])
+        LOGGER.info(' + Hetzner hook executing %s...', argv[0])
         ops[argv[0]](argv[1:])
 
 if __name__ == '__main__':
