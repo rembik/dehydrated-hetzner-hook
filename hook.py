@@ -456,6 +456,7 @@ class Provider(object):
         rrset = dns.rrset.from_text(name, 0, 1, rdtype)
         try:
             resolver = dns.resolver.Resolver()
+            resolver.lifetime = 1
             if nameservers:
                 resolver.nameservers = nameservers
             rrset = resolver.query(name, rdtype)
@@ -494,7 +495,9 @@ class Provider(object):
         more linked record name was found for the given fully qualified record name or
         the CNAME lookup was disabled, and then returns the parameters as a tuple.
         """
-        domain = dns.resolver.zone_for_name(name).to_text(True)
+        resolver = dns.resolver.Resolver()
+        resolver.lifetime = 1
+        domain = dns.resolver.zone_for_name(name, resolver=resolver).to_text(True)
         nameservers = Provider._get_nameservers(domain)
         cname = None
         links, max_links = 0, 5
@@ -509,9 +512,9 @@ class Provider(object):
             if rrset:
                 links += 1
                 cname = rrset[0].to_text()
-                qdomain = dns.resolver.zone_for_name(cname)
-                if domain != qdomain.to_text(True):
-                    domain = qdomain.to_text(True)
+                qdomain = dns.resolver.zone_for_name(cname, resolver=resolver).to_text(True)
+                if domain != qdomain:
+                    domain = qdomain
                     nameservers = Provider._get_nameservers(qdomain)
             else:
                 link = False
@@ -539,10 +542,10 @@ class Provider(object):
             if action != 'update' or name == qname or not qname:
                 LOGGER.info('Hetzner => Enable CNAME lookup '
                             '(see --linked parameter)')
-                return qname, True
+                return name, True
         LOGGER.info('Hetzner => Disable CNAME lookup '
                     '(see --linked parameter)')
-        return qname, False
+        return name, False
 
     def _propagated_record(self, rdtype, name, content, nameservers=None):
         """
@@ -760,11 +763,6 @@ def deploy_cert(args):
 def unchanged_cert(args):
     return
 
-def invalid_challenge(args):
-    domain, result = args
-    LOGGER.debug('HETZNER => Invalid challenge for %s: %s', domain, result)
-    return
-
 def deploy_challenge(args):
     provider = Provider()
     for idx in range(0, len(args), 3):
@@ -786,6 +784,11 @@ def clean_challenge(args):
         provider.delete_record(None, 'TXT', name, args[(idx + 2)])
     return
 
+def invalid_challenge(args):
+    domain, result = args
+    LOGGER.debug('HETZNER => Invalid challenge for %s: %s', domain, result)
+    return
+
 def startup_hook(args):
     return
 
@@ -795,6 +798,7 @@ def exit_hook(args):
 def main(argv):
     log_level = os.environ.get('HETZNER_LOG_LEVEL', 'INFO')
     if log_level not in ('CRITICAL', 'ERROR', 'WARNING', 'INFO', 'DEBUG', 'NOTSET'):
+        logging.basicConfig(stream=sys.stdout, level='ERROR', format='%(message)s')
         LOGGER.error('Hetzner => HETZNER_LOG_LEVEL is invalid: \'%s\' (choose from '
                      '\'CRITICAL\', \'ERROR\', \'WARNING\', \'INFO\', \'DEBUG\' or '
                      '\'NOTSET\')', log_level)

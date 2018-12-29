@@ -64,7 +64,7 @@ HETZNER_AUTH_ACCOUNT='robot' HETZNER_AUTH_USERNAME='<username>' HETZNER_AUTH_PAS
 *Optional*, for `CNAME dns-01` challenges add a CNAME entry from the 
 requested domain to the Hetzner domain that should accomplish the dns challenge. 
 The CNAME for dns-01 challenging `example.net` with `example.org` could look 
-similar to the following and must be added to the domain `example.net`: 
+similar to the following and must be added to the domain zone `example.net`: 
 ```
 _acme-challenge    IN CNAME   localhost.example.org.
 ```
