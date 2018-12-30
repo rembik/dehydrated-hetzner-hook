@@ -1,32 +1,45 @@
 #!/usr/bin/env bash
 #
-# Deploy a DNS challenge using lexicon hetzner provider
+# Deploy a DNS challenge using lexicon
 
 set -e
 set -u
 set -o pipefail
 
+export PROVIDER_UPDATE_DELAY=${PROVIDER_UPDATE_DELAY:-"30"}
 export PROVIDER=${PROVIDER:-"hetzner"}
-export PROVIDER_LINKED=${PROVIDER_LINKED:-"yes"}
-export PROVIDER_LATENCY=${PROVIDER_LATENCY:-30}
 
 function deploy_challenge {
     local chain=($@)
     for ((i=0; i < $#; i+=3)); do
-        local DOMAIN="${chain[i]}" TOKEN_FILENAME="${chain[i+1]}" TOKEN_VALUE="${chain[i+2]}" PROPAGATED="yes"
-        if ((i < ($# - 3))); then
-            local PROPAGATED="no"
+        local DOMAIN="${chain[i]}" TOKEN_FILENAME="${chain[i+1]}" TOKEN_VALUE="${chain[i+2]}"
+
+        echo "deploy_challenge called: ${DOMAIN}, ${TOKEN_FILENAME}, ${TOKEN_VALUE}"
+
+        if [ "${PROVIDER}" != "hetzner" ]; then
+            lexicon $PROVIDER create ${DOMAIN} TXT --name="_acme-challenge.${DOMAIN}." \
+            --content="${TOKEN_VALUE}"
+        else
+            local PROPAGATED="yes"
+            if ((i < $# - 3)); then
+                local PROPAGATED="no"
+            fi
+            lexicon $PROVIDER create ${DOMAIN} TXT --name="_acme-challenge.${DOMAIN}." \
+            --content="${TOKEN_VALUE}" --propagated="${PROPAGATED}"
         fi
-
-        echo " + deploy_challenge called: ${DOMAIN}, ${TOKEN_VALUE}"
-
-        lexicon $PROVIDER create ${DOMAIN} TXT --name="_acme-challenge.${DOMAIN}." \
-        --content="${TOKEN_VALUE}" --linked="${PROVIDER_LINKED}" --propagated="${PROPAGATED}" \
-        --latency=${PROVIDER_LATENCY}
     done
 
-    # This hook is called once for every domain or domain chain that needs
-    # to be validated, including any alternative names you may have listed.
+    if [ "${PROVIDER}" != "hetzner" ]; then
+        local DELAY_COUNTDOWN=$PROVIDER_UPDATE_DELAY
+        while [ $DELAY_COUNTDOWN -gt 0 ]; do
+            echo -ne "${DELAY_COUNTDOWN}\033[0K\r"
+            sleep 1
+            : $((DELAY_COUNTDOWN--))
+        done
+    fi
+
+    # This hook is called once for every domain chain that needs to be
+    # validated, including any alternative names you may have listed.
     #
     # Parameters:
     # - DOMAIN
@@ -48,14 +61,14 @@ function clean_challenge {
     for ((i=0; i < $#; i+=3)); do
         local DOMAIN="${chain[i]}" TOKEN_FILENAME="${chain[i+1]}" TOKEN_VALUE="${chain[i+2]}"
 
-        echo " + clean_challenge called: ${DOMAIN}, ${TOKEN_VALUE}"
+        echo "clean_challenge called: ${DOMAIN}, ${TOKEN_FILENAME}, ${TOKEN_VALUE}"
 
         lexicon $PROVIDER delete ${DOMAIN} TXT --name="_acme-challenge.${DOMAIN}." \
-        --content="${TOKEN_VALUE}" --linked="${PROVIDER_LINKED}" --latency=${PROVIDER_LATENCY}
+        --content="${TOKEN_VALUE}"
     done
 
-    # This hook is called after attempting to validate each domain or
-    # domain chain, whether or not validation was successful. Here you
+    # This hook is called after attempting to validate each domain
+    # chain, whether or not validation was successful. Here you
     # can delete files or DNS records that are no longer needed.
     #
     # The parameters are the same as for deploy_challenge.
